@@ -1,0 +1,196 @@
+-----------------------------------------------------------------------------
+| CHAPTER 4 - WORKING WITH PODS                                             |
+-----------------------------------------------------------------------------
+
+- Pods
+
+    - Atomic unit of deployment in K8s.  A 'pod' is a shared execution environment for one or more
+        containers.
+
+    - Pods get scheduled on nodes.  A single Pod instance cannot span multiple nodes.
+
+
+    - Single-container pods are most common, but multi-container pods are becoming more popular.  Two
+        common uses for multi-container pods are:
+
+        1. Tightly coupled workloads that share resources
+        2. Service mesh adds proxy container to every pod to handle network traffic
+
+
+
+- Multi-Container Pod Example - Web Server and File Synchronizer
+
+    - Here, we use a web server that uses a file synchronizer.  
+
+    - We have 2 separate concerns, but they need to be located in the same pod to share the same 
+        execution environment (ie they need to share memory or disk volume).
+
+
+
+- Deploying Pods
+
+    - To deploy a pod to a Kubernetes cluster, you define it in a manifest file and POST the manifest
+        file to the API Server.
+
+
+    - The control plane:
+
+        - Verifies the configuration of the YAML file
+        - Writes it to the cluster store as a letter of intent
+        - Deploys it to a healthy node with enough available resources
+
+
+
+- Anatomy of a Pod
+
+    - A Pod is a shared execution environment for one or more containers, which means the Pod has a set
+        of resources shared by every container in the Pod.
+
+      These shared resources include:
+        - IP addresses
+        - ports
+        - hostname
+        - sockets
+        - memory
+        - volumes
+
+
+    - A Pod is actually a special type of container called a 'pause container', which is a collection
+        of system resources that containers running inside will inherit and share.
+
+      This means that all containers running in a Pod share a hostname, IP address, memory address space,
+        and volumes.
+
+
+    - This networking model makes communication really easy:
+
+        1. For intra-pod networking, we can just use the 'localhost' interface.
+
+        2. For inter-pod networking, each Pod in the cluster gets it's own IP address, so we don't have
+             to worry about port mapping.
+
+
+
+- Pod Lifecycle
+
+    - You define a Pod in a YAML manifest file and POST it to the Api Server.  It's persisted to the
+        cluster store, and is scheduled to a healthy node with enough resources.  It enters a 'Pending'
+        state.
+
+    - The Pod remains in a 'Pending' state while images are downloaded, containers are started, and all
+        resources are up and ready.  Once they are, it enters a 'Running' state.
+
+    - Once the Pod has completed all of it's tasks, it gets terminated and enters a 'Succeeded' state.
+
+    - When a Pod can't start, it can remain in the 'Pending' state or go to the 'Failed' state.
+
+
+    - Pods deployed via manifests are 'singletons', meaning they are not managed by controllers that
+        add features like auto-scaling or self-healing.  For this reason, we usually deploy pods with
+        higher-level controllers.
+
+      We should think of pods as mortal and unreliable.  Do not store state in them.
+
+
+
+- Pod Example Cluster
+
+    - In our example, we'll have a 3-node cluster.
+
+        Node1 (Master)
+        Node2 (Node)
+        Node3 (Node)
+
+
+    - We can use 'Play with Kubernetes' to get a cluster with 3 hosts.
+
+    - We'll define pods in manifest files, POST them to the API server, and let the scheduler
+        instantiate them on the cluster.
+
+
+
+- Pod Manifest Files
+
+    - We're going to use the following Pod manifest:
+
+        pod.yml
+        --------------------
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: hello-pod
+          labels:
+            zone: prod
+            version: v1
+        spec:
+          containers:
+          - name: hello-ctr
+            image: nigelpoulton/k8sbook:latest
+            ports:
+            - containerPort: 8080
+
+
+    - Sections:
+
+        apiVersion        # k8s API version
+        kind              # type of k8s object
+        metadata          # Name and labels for pod
+        spec              # Definition of containers that will run in pod
+
+
+    - Save the manifest file in your current directory, and run the command to POST the manifest to
+        the API server.
+
+        # POST manifest file
+        $ kubectl apply -f pod.yml
+
+        # Check the status of running pods
+        $ kubectl get pods
+
+        # Watch the status of pods
+        $ kubectl get pods --watch
+
+
+
+- Introspecting Running Pods
+
+    - To get more information about the running pods:
+
+        # Get more details about running pod
+        $ kubectl get pods hello-pod -o wide
+
+        # Get complete manifest for running pod
+        $ kubectl get pods hello-pod -o yaml
+
+
+    - The 'kubectl describe' command gives you a nicely formatted overview of an object.
+
+        $ kubectl describe pods hello-pod
+
+
+    - The 'kubectl exec' command allows you to log into a pod or execute commands in it.
+
+        # Execute command inside pod
+        $ kubectl exec hello-pod -- ps aux
+
+
+        # Get shell into pod (-it connects your STDIN/STDOUT to STDIN/STDOUT of first container in pod)
+        $ kubectl exec -it hello-pod -- sh
+
+        # Run commands
+        > apk add curl
+        > curl localhost:8080
+
+
+    - The 'kubectl logs' command is used for reading the logs from a pod.  Like other commands, it is
+        connected to the first container in the pod unless the '--container' flag is used.
+
+        $ kubectl logs hello-pod
+
+
+
+- Deleting the Pod
+
+    - To clean up, we'll delete the pod.
+
+        $ kubectl delete -f pod.yml
