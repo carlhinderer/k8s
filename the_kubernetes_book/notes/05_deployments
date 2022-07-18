@@ -1,0 +1,240 @@
+-----------------------------------------------------------------------------
+| CHAPTER 5 - KUBERNETES DEPLOYMENTS                                        |
+-----------------------------------------------------------------------------
+
+- Deployments
+
+    - You'll typically deploy Pods via a Deployment controller, since this gives you things like
+        auto-scaling, rolling updates, rollbacks, etc.
+
+    - A single Deployment (which is a full-fledged k8s object) object can only manage a single Pod
+        template.  For instance, a Deployment may manage 2 web server Pods.
+
+    - Behind the scenes, Deployments use ReplicaSets, which are an object used to provide self-healing
+        and scaling.  Essentially, we can think of Deployments managing ReplicaSets, which manage
+        Pods.
+
+
+
+- Self-Healing and Scalability
+
+    - If a Pod managed by a Deployment fails, it will be replaced.
+
+    - If a Pod managed by a Deployment sees increased load, you can easily add more of the same Pod to
+        deal with the load.
+
+
+    - K8s is contantly running 'reconciliation loops' (aka 'control loops') in the background, which
+        ensure that the current state of the system matches your desired state.
+
+      For instance, ReplicaSets implement a background reconciliation that ensures you have the 
+        correct number of replicas.  If there aren't enough, it adds more.  If there are too many, it
+        terminates some.
+
+
+    - Note that all of this happens in the background without anyone on the technical team being woken
+        up in the middle of the night.
+
+
+
+- Rolling Updates with Deployments
+
+    - We can also use Deployments to get zero-downtime rolling updates.  To accomplish this:
+
+        1. To deploy a new version, just send a new manifest to the API server, with the new version
+             of the image we want to use.
+
+        2. To make the switch, K8s creates a new ReplicaSet, which lives alongside the old one.  As it
+             scales down the number of pods with the old version (the old desired state), it increases
+             the number of pods with the new version (new desired state).
+
+
+
+- Creating a Deployment
+
+    - We'll create a new Deployment file:
+
+        # deploy.yml
+        ----------------------------
+        apiVersion: apps/v1 #Older versions of k8s use apps/v1beta1
+        kind: Deployment
+        metadata:
+          name: hello-deploy
+        spec:
+          replicas: 10
+          selector:
+            matchLabels:
+              app: hello-world
+          minReadySeconds: 10
+          strategy:
+            type: RollingUpdate
+            rollingUpdate:
+              maxUnavailable: 1
+              maxSurge: 1
+          template:
+            metadata:
+              labels:
+                app: hello-world
+            spec:
+              containers:
+              - name: hello-pod
+                image: nigelpoulton/k8sbook:latest
+                ports:
+                - containerPort: 8080
+
+
+    - Sections
+
+        apiVersion           # k8s api version
+        kind                 # type of k8s object
+        metadata             # name and labels
+        spec                 # pod specifications
+
+
+    - To deploy our Deployment:
+
+        $ kubectl apply -f deploy.yml
+
+
+    - To inspect our Deployment:
+
+        # Get overview of Deployment
+        $ kubectl get deploy hello-deploy
+
+        # Get details about Deployment
+        $ kubectl describe deploy hello-deploy
+
+        # Get overview of ReplicaSets
+        $ kubectl get rs
+
+
+
+- Accessing the App
+
+    - In order to access the application from a stable name or IP address (or even from outside the 
+        cluster), you need a Kubernetes Service object.  Service Objects provide a stable DNS name and
+        IP address for a set of pods.
+
+        svc.yml
+        -----------------------------
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: hello-svc
+          labels:
+            app: hello-world
+        spec:
+          type: NodePort
+          ports:
+          - port: 8080
+            nodePort: 30001
+            protocol: TCP
+          selector:
+            app: hello-world
+
+
+    - To deploy the service:
+
+        $ kubectl apply -f svc.yml
+
+
+    - Now that the service is deployed, you can access the app from either of the following:
+
+        1. From inside the cluster using the DNS name 'hello-svc' on port 8080
+
+        2. From outside the cluster by hitting any of the cluster nodes on port 30001
+
+
+
+- Performing a Rolling Update
+
+    - For an example of performing an update, remember that before we deployed our application using
+        the image 'nigelpoulton/k8sbook:latest'.
+
+      We'll update to a new version, 'nigelpoulton/k8sbook:edge'.
+
+
+    - Here is our new manifest:
+
+        deploy.yml
+        ---------------------
+        ... Everything above is the same ...
+        spec:
+          replicas: 10
+          selector:
+            matchLabels:
+              app: hello-world
+          minReadySeconds: 10
+          strategy:
+            type: RollingUpdate
+            rollingUpdate:
+              maxUnavailable: 1
+              maxSurge: 1
+        template
+          ... Everything else is the same ...
+          image: nigelpoulton/k8sbook:edge          # This line changed
+
+
+    - Settings related to deployment:
+
+        minReadySeconds: 10              # Wait for 10s before each Pod is updated (throttle updates)
+
+        type: RollingUpdate              # Use the RollingUpdate strategy
+
+        maxUnavailable: 1                # Never have more than one Pod below desired state
+
+        maxSurge: 1                      # Never have more than one Pod above desired state
+
+
+    - Now, we can initiate the update.
+
+        # Initiate the update
+        $ kubectl apply -f deploy.yml --record
+
+        # Monitor the progress
+        $ kubectl rollout status deployment hello-deploy
+
+        # View deployments
+        $ kubectl get deploy
+
+        # Verify deployment is complete
+        $ kubectl get deploy hello-deploy
+
+
+
+- Performing a Rollback
+
+    - Since we used the 'kubectl apply' to perform a rolling update on a Deployment, we can view
+        the rollout history:
+
+        $ kubectl rollout history deployment hello-deploy
+
+
+    - To view both the old and new ReplicaSets:
+
+        $ kubectl get rs
+
+
+    - To initiate the rollback:
+
+        # User revision number from rollout history
+        $ kubectl rollout undo deployment hello-deploy --to-revision=1
+
+
+    - To track the status of the rollback:
+
+        # Get status of rollback
+        $ kubectl get deploy hello-deploy
+
+        # Track status of rollback
+        $ kubectl rollout status deployment hello-deploy
+
+
+
+- Deleting the Deployment and Service
+
+    - We'll delete the Deployment and Service we created in this chapter.
+
+        $ kubectl delete -f deploy.yml
+
+        $ kubectl delete -f svc.yml
