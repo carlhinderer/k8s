@@ -1,0 +1,183 @@
+-----------------------------------------------------------------------------
+| CHAPTER 2 - KUBERNETES PRINCIPLES OF OPERATION                            |
+-----------------------------------------------------------------------------
+
+- Kubernetes as a Cluster
+
+    - At the highest level, Kubernetes is:
+
+        - A cluster for running applications
+        - An orchestrator of cloud-native microservices apps
+
+
+    - K8s is like any other cluster - it has a control plane and a bunch of nodes.  The control plane
+        exposes an API, has a scheduler for assigning work to nodes, and state is recorded in a
+        persistent store.
+
+
+
+- Running Applications in Kubernetes
+
+    - To run applications in a Kubernetes cluster, we follow this simple pattern:
+
+        1. Write the application as small independent microservices in our favorite language.
+
+        2. Package each microservice in it's own container.
+
+        3. Wrap each containter in it's own pod.
+
+        4. Deploy pods to the cluster via high-level controllers (ie Deployments, DaemonSets, StatefulSets,
+             CronJobs, etc.)
+
+
+
+- Masters (Control Plane)
+
+    - Generally should not run user applications on masters.
+
+    - A 'master' is a collection of system services that make up the control plane of the cluster.
+
+    - 3-5 replicas in HA configuration is recommended
+
+
+    - API Server
+        - All communication between all components goes through this
+        - Exposes RESTful API that you POST YAML configuration files to over HTTPS on port 443
+        - These YAML 'manifests' describe the desired state of your application
+
+
+    - Cluster Store
+        - Only stateful part of control plane, persistently stores state of cluster 
+        - Currently based on etcd
+        - etcd perfers consistency over availability, so updates will be blocked on failures
+
+
+    - Controller Manager
+        - Controls the controllers, spawns independent control loops and monitors them
+        - ie node controller, endpoint controller, replicaset controller
+        - Each controller ensures current state of cluster matches desired state
+        - Each control loop is extremely specialized and accomplishes a single thing
+
+
+    - Scheduler
+        - Watches API server for new work tasks, and assigns tasks to healthy nodes
+        - Runs checks to ensure nodes are healthy before assigning tasks
+        - Tasks that cannot be scheduled remain pending
+
+
+    - Cloud Controller Manager
+        - Manage integrations with cloud providers if deployed in cloud
+
+
+
+- Nodes
+
+    - Nodes:
+
+        1. Watch the API server for new work assignments
+        2. Execute new work assignments
+        3. Report back to the control plane
+
+
+    - Kublet
+        - Iinterchangeable with 'node', runs on every node
+        - Registers with cluster when new node is added, adds node's resources to pool
+        - Watches API server, executes tasks if assigned
+
+
+    - Container Runtime
+        - container tasks like pulling images, starting and stopping containers
+
+
+    - Kube-proxy
+        - Runs on every node, responsible for local cluster networking
+        - ie assigning IP addresses, load balancing, routing
+
+
+
+- Kubernetes DNS
+
+    - Every K8s cluster has an internal DNS service that is vital to operations.  The DNS service has a
+        static IP that is hard-coded into every pod on the cluster, so all containers and pods can find
+        it.
+
+    - Every new service is automatically registered with the cluster's DNS so that all components can
+        find every service by name.
+
+    - Cluster DNS is based on CoreDNS.
+
+
+
+- Packaging Applications for K8s
+
+    - To run your application on a K8s cluster:
+
+        1. Package application code in container
+        2. Wrap in pod to allow container to run in k8s
+        3. Define a deployment manifest for deployment with higer-level controller
+
+
+
+- Pods
+
+    - We call groups of containers 'pods' since the Docker logo is a whale.  Containers must always
+        run in pods in k8s.
+
+
+    - The simplest simplest model is to run a single container per pod.  There are advanced used cases
+        in which we run multiple containers in a single pod.  These 'multi-container pods' include:
+
+        - Service meshes
+        - Web containers with helper containers to pull the latest content
+        - Containers with a tightly coupled log scraper
+
+
+    - A 'pod' is a ring-fenced environment to run containers.
+
+
+    - If you run multiple containers in a pod, they all share the same 'pod environment'.  This includes
+        things like the IPC namespace, shared memory, volumes, network stack, and more.
+
+      For instance, all containers in the same pod will have the same IP address.  They can communicate
+        with each other via 'localhost'.
+
+
+    - Deployment of a pod is an atomic operation.  It either fully succeeds and the node goes into 
+        service, or it doesn't and it fails.
+
+    - Pods live and die all the time.  When a pod dies, we start a new one in it's place, which has a
+        new id and IP address.  We should design applications with this in mind.
+
+
+
+- Services
+
+    - How can other parts of the app use a service if pods are unreliable and IP addresses are always
+        changing?  'Services' provide reliable networking for a set of pods.
+
+    - For instance, we have a 'Kubernetes Service' object, which is providing a reliable name and IP
+        for a service, and is load-balancing requests to 2 pods behind it.
+
+
+    - Services are fully-fledged k8s objects like pods and deployments.
+
+      They have a front-end that consists of a stable DNS name, IP address, and port.
+
+      On the back-end, they load-balance across a dynamic set of pods.
+
+
+
+- Connecting Pods to Services
+
+    - Services use 'labels' and a 'label selector' to know which set of pods to load balance traffic to.
+
+    - A Service has a label selector that is a list of all labels a pod must possess in order for it
+        to retrieve traffic from the service.
+
+
+    - For instance, a Service is configured to send traffic to all Pods on the cluster tagged with these
+        3 labels:
+
+        zone=prod
+        env=be
+        ver=1.3
