@@ -1,0 +1,97 @@
+-----------------------------------------------------------------------------
+| CHAPTER 3 - INSTALLING KUBERNETES                                         |
+-----------------------------------------------------------------------------
+
+- Kubernetes Environments
+
+    1. Test playgrounds
+    2. Hosted Kubernetes
+    3. DIY installation
+
+
+
+- Hosted Kubernetes
+
+    - AWS = EKS (Elastic Kubernetes Service)
+        - kops = Opinionated tool for installing K8s on AWS
+        - kubeadm = More flexible tool for installing K8s on AWS
+
+    - Azure = Azure Kubernetes Service
+
+    - Linode = Linode Kubernetes Engine
+
+    - DigitalOcean = DigitalOcean Kubernetes
+
+    - IBM Cloud = IBM Cloud Kubernetes Service
+
+    - GCP = Google Kubernetes Engine
+        - Detailed instructions for getting started in book
+        - Managed control plane (you don't have to manage the masters)
+
+
+
+- Local Development
+
+    - Regardless of what local version of Kubernetes we use, we always need the client tools:
+
+        1. kubectl
+
+        2. Helm = K8s package manager
+
+        3. Skaffold = K8s build automation tool
+
+
+    - Most common options for local development cluster testing:
+
+        MiniKube = very easy to set up, runs in VM, uses more resources
+
+        k3s = lighter weight, uses less resources
+
+
+    - We'll install k3s using the standard install script:
+
+        $ curl -sfL https://get.k3s.io | sh -
+
+
+    - Now, we need to fix the permissions problem on the 'k3s.yaml' file, which should not be 
+        world-readable.
+
+        # Set up an environment variable for config file location (also add to ~/.profile or ~/.bashrc)
+        export KUBECONFIG=~/.kube/config
+
+        # Generate config file at that location
+        mkdir ~/.kube 2> /dev/null
+        sudo k3s kubectl config view --raw > "$KUBECONFIG"
+        chmod 600 "$KUBECONFIG"
+
+
+
+- kubectl
+
+    - kubectl is the main command-line tool, and is what we use for day-to-day K8s management activities.
+        It's like 'SSH for Kubernetes'.
+
+    - kubectl shouldn't be more than one minor release above or below your cluster version.
+
+    - At a high level, kubectl converts user-friendly commands into the JSON payload required by the
+        API server.  It uses a config file to know which cluster and API server endpoint to POST
+        commands to.
+
+    
+    - The kubectl config file is called 'config', and lives in '$HOME/.kube'.  It contains definitions
+        for:
+
+        1. Clusters = list of clusters that kubectl knows about
+
+        2. Users (credentials) = users with different permissions
+
+        3. Contexts = bring together clusters and users under a friendly name
+
+
+    - To view and change your current context:
+
+        # Get current context
+        $ kubectl config current-context
+
+        # Switch context
+        $ kubectl config use-context docker-desktop
