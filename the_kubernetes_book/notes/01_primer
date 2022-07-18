@@ -1,0 +1,53 @@
+-----------------------------------------------------------------------------
+| CHAPTER 1 - KUBERNETES PRIMER                                             |
+-----------------------------------------------------------------------------
+
+- Orchestrators
+
+    - Kubernetes is an 'application orchestrator'.  For instance, it can:
+
+        - Deploy your application
+        - Scale up and down according to demand
+        - Self-heal when things break
+        - Perform zero-downtime rolling updates and rollbacks
+
+
+
+- Eras of Application Deployment
+
+    1. Applications ran on physical servers in the age of open-system (1980s and 1990s)
+
+    2. Applications ran on VMs in the age of VMs (2000s to early 2010s)
+
+    3. Applications run in containers in the cloud-native era (mid 2010s to current)
+
+
+
+- Microservices Example
+
+    - An e-commerce application has these smaller, specialized components:
+
+        1. Web Front-End
+        2. Catalog Service
+        3. Shopping Cart
+        4. Authentication Service
+        5. Logging Service
+        6. Persistent Store
+
+
+
+- Popular Container Runtimes
+
+    - Docker
+    - containerd
+    - kata
+
+
+
+- Kubernetes History
+
+    - Google fell behind AWS in cloud, so they needed an abstraction layer so customers would be willing
+        to switch cloud providers
+
+    - Google had a long history of running millions of containers in Borg and Omega projects, so they
+        created Kubernetes as open source project and donated to CNCF in 2014
