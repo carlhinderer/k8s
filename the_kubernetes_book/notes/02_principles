@@ -80,7 +80,7 @@
 
 
     - Kublet
-        - Iinterchangeable with 'node', runs on every node
+        - Interchangeable with 'node', runs on every node
         - Registers with cluster when new node is added, adds node's resources to pool
         - Watches API server, executes tasks if assigned
 

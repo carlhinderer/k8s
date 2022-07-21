@@ -1,0 +1,66 @@
+-----------------------------------------------------------------------------
+| CHAPTER 6 - KUBERNETES SERVICES                                           |
+-----------------------------------------------------------------------------
+
+- Services
+
+    - 3 Fundamental things about k8s Services:
+
+        1. A 'Service' is a k8s object that provides reliable and stable networking to a set of dynamic
+             pods.
+
+        2. Every service gets its own stable IP address, its own stable DNS name, and its own stable port.
+
+        3. Services leverage labels to dynaically select pods in the cluster they will send traffic to.
+
+
+    - Services have a static front end (IP, DNS name, port) and a dynamic back end (Pods are constantly
+        changing).
+
+
+
+- Labels and Label Selectors
+
+    - For a Service to match a set of pods, and therefore send traffic to them, the Pods must possess
+        every label in the Services label selector.
+
+
+    - Here is an example of a label being added to a Deployment:
+
+        deploy.yml
+        ----------------------
+        ...
+        spec:
+          replicas: 10
+          selector:
+            matchLabels:
+              app: hello-world
+          template:
+            metadata:
+              labels:
+                app: hello-world # Pod labels
+                # The label matches the Service's label selector
+
+
+    - And here is an example of a Service using the label in a selector:
+
+        svc.yml
+        ---------------------
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: hello-svc
+        spec:
+          ports:
+          - port: 8080
+          selector:
+            app: hello-world # Label selector
+            # Service is looking for Pods with the label `app=hello-world`
+
+
+
+
+- Services - The Imperative Way (Not the k8 Way!)
+
+
+- Services - The Declarative Way

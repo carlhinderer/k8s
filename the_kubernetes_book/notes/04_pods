@@ -102,8 +102,6 @@
         Node3 (Node)
 
 
-    - We can use 'Play with Kubernetes' to get a cluster with 3 hosts.
-
     - We'll define pods in manifest files, POST them to the API server, and let the scheduler
         instantiate them on the cluster.
 
