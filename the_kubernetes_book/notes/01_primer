@@ -50,4 +50,4 @@
         to switch cloud providers
 
     - Google had a long history of running millions of containers in Borg and Omega projects, so they
-        created Kubernetes as open source project and donated to CNCF in 2014
+        created Kubernetes as open source project and donated to CNCF in 2014.

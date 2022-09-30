@@ -1,0 +1,124 @@
+-----------------------------------------------------------------------------
+| CHAPTER 1 - INTRODUCTION                                                  |
+-----------------------------------------------------------------------------
+
+- Prereqs
+
+    - Make sure Docker is installed
+    - Make sure kubectl is installed
+
+
+
+- K8s
+
+    - Used to build and deploy reliable, scalable, distributed systems
+
+    - Increased development velocity due to:
+        - Immutability
+        - Declarative configuration
+        - Online self-healing systems
+        - Shared reusable libraries and tools
+
+
+
+- Immutability
+
+    - Instead of logging onto a server and making incremental changes, push a new image
+    - Easy to see what changes were made
+    - Old image is still around so you can revert
+    - Imperatively changing running containers is an antipattern
+
+
+
+- Declarative Configuration
+
+    - Everything in k8s is a declarative configuration object that represents desired state of the system
+    - Infrastructure as code
+    - With GitOps, changes to production are made entirely with a push to a git repo
+    - Production k8s cluster is a read-only environment
+
+
+
+- Self-Healing Systems
+
+    - Continuously takes actions to ensure the current state matches the desired state
+    - Reduces burden on operators, increases reliability, handles repairs more quickly
+
+
+
+- Scaling Services and Teams
+
+    - In a decoupled architecture, each component is separated from other components by defined APIs and
+        service load balancers.
+
+    - Because containers are immutable, the number of replicas of a service is just a config setting.
+        Machines in a cluster are treated as entirely identical.
+
+    - The ideal size of a software team is 6-8 people, a 'two pizza team'.  Since most applications need
+        more people than this, we can decompose an application into microservices.
+
+
+    - K8s provides numerous abstractions and APIs that make it easier to build microservices architectures:
+
+        - Pods = groups of containers
+        - Services = provide load balancing, naming, and discovery
+        - Namespaces = provide isolation and access control for different services
+        - Ingress objects = easy to use frontend that combines multiple services into single API surface area
+
+
+    - Application developer relies on SLA from container orchestrator without worrying about the details of
+        how that SLA is achieved.
+
+            Application Ops
+                  |          K8s API
+             Cluster Ops
+                  |          Kernel/Syscall API
+             Kernal Ops
+                  |          CPU
+            Hardware Ops
+
+
+
+- Abstracting Your Infrastructure
+
+    - 2 concrete benefits of moving to application-oriented container APIs:
+
+        1. Separates developers from machines.  This makes the machine-oriented IT role easier.
+
+        2. Enables a high degree of portability.  Transferring to a new environment is simply a matter of
+             sending the declarative config to the new cluster.
+
+
+    - For example, K8s services know how to create load balancers on all major public clouds.
+
+    - K8s PersistentVolumes and PersistentVolumeClaims can be used to abstract your application away from
+        specific storage implementations.  To achieve this portability, you need to avoid cloud-managed
+        services (ie DynamoDB) and use open source solutions (ie MySQL, MongoDB, Cassandra) instead.
+
+
+
+- Efficiency
+
+    - K8s can automatically reduce the amount of idle CPU time in a cluster, ensuring higher levels of
+        utilization than are possible with traditional tooling.
+
+    - A developer's test environment can be quickly and cheaply created as a set of containers running
+        in a personal view of a shared K8s cluster (using 'namespaces').  This means all developers can
+        share a single test cluster.
+
+    - The cost savings makes it feasable to fully deploy and test every single commit by every developer.
+
+
+
+- Cloud Native Ecosystem
+
+    - There is now an open source tool for nearly every task involved in running k8s, from ML to CI to
+        serverless.
+
+
+    - The CNCF acts as an industry-neutral home for cloud native projects' code and intellectual property.
+        It has 3 levels of maturity for projects:
+
+        1. Sandbox          (Hundreds of projects)
+        2. Incubating       (37 projects)
+        3. Graduated        (18 projects, including k8s itself)
