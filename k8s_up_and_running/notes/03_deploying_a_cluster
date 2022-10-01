@@ -1,0 +1,203 @@
+-----------------------------------------------------------------------------
+| CHAPTER 3 - DEPLOYING A K8S CLUSTER                                       |
+-----------------------------------------------------------------------------
+
+- Installing K8s with Google Kubernetes Engine
+
+    1. Download the 'gcloud' tool
+
+
+    2. Set a default zone
+
+         $ gcloud config set compute/zone us-west1-a
+
+
+    3. Create a cluster
+
+         $ gcloud container clusters create kuar-cluster --num-nodes=3
+
+
+    4. When the cluster is ready, you can get credentials for the cluster
+
+         $ gcloud container clusters get-credentials kuar-cluster
+
+
+
+- Installing K8s on AWS
+
+    0. Since we've removed k3s, we'll need to add kubectl.
+
+        # Download kubectl
+        $ curl -o kubectl \
+            https://s3.us-west-2.amazonaws.com/amazon-eks/1.23.7/2022-06-29/bin/linux/amd64/kubectl
+
+        # Apply execute permissions to the binary
+        $ chmod +x ./kubectl
+
+        # Copy the binary to a folder in your path
+        $ sudo mv kubectl /usr/local/bin
+
+        # Verify kubectl is installed
+        $ kubectl version
+
+
+    1. Download the 'eksctl' tool
+
+        # Download eksctl
+        $ curl --silent --location \ 
+          "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" \
+          | tar xz -C /tmp
+
+        # Move the extracted binary to /usr/local/bin
+        $ sudo mv /tmp/eksctl /usr/local/bin
+
+        # Verify eksctl is installed
+        $ eksctl version
+
+
+    2. Create a cluster (Not using Fargate for now)
+
+         $ eksctl create cluster
+
+         # Using this specifically
+         $ eksctl create cluster --name my-cluster --zones us-east-1a,us-east-1b,us-east-1c,us-east-1d
+
+
+    3. To get help
+
+         $ eksctl create cluster --help
+
+
+
+- Installing K8s Locally Using Minikube
+
+    1. Minikube runs in a VM on a single node.  You need to install VirtualBox to use as the Hypervisor.
+         Then, download the Minikube binary.
+
+
+    2. Create a local cluster
+
+         $ minikube start
+
+
+    3. When you are done with your cluster
+
+         $ minikube stop
+
+
+    4. To delete the cluster
+
+         $ minikube delete
+
+
+
+- Installing K8s Locally with Kind
+
+    1. Kind uses Docker containers to simulate multiple K8s nodes instead of running everything in a VM.
+         Follow the install instructions on the kind website.
+
+
+    2. Create a cluster
+
+        $ kind create cluster --wait 5m
+        $ export KUBECONFIG="$(kind get kubeconfig-path)"
+        $ kubectl cluster-info
+
+
+    3. To delete the cluster
+
+        $ kind delete cluster
+
+
+
+- Installing K8s Locally with k3s
+
+    1. Install k3s using the standard install script:
+
+        $ curl -sfL https://get.k3s.io | sh -
+
+
+    2. Now, we need to fix the permissions problem on the 'k3s.yaml' file, which should not be 
+        world-readable.
+
+        # Set up an environment variable for config file location (also add to ~/.profile or ~/.bashrc)
+        export KUBECONFIG=~/.kube/config
+
+        # Generate config file at that location
+        mkdir ~/.kube 2> /dev/null
+        sudo k3s kubectl config view --raw > "$KUBECONFIG"
+        chmod 600 "$KUBECONFIG"
+
+
+    3. To uninstall k3s (deleting the cluster data and all the scripts):
+
+        /usr/local/bin/k3s-uninstall.sh
+
+
+
+- The K8s Client
+
+    - kubectl is the official K8s client, a command-line tool for interacting with the K8s API.   To get
+        information about the cluster:
+
+        # Check cluster version
+        $ kubectl version
+
+        # Get simple diagnostic for the cluster
+        $ kubectl get componentstatuses
+
+
+    - When getting the component status, we'll see the components that make up the K8s cluster.
+
+        - The 'controller-manager' is responsible for various controllers that regulate behavior in the
+            cluster (ie making sure all the replicas of a service are available and healthy).
+
+        - The 'scheduler' is responsible for placing different Pods into different nodes in the cluster.
+
+        - The 'etcd' server is the storage for the cluster where all of the API objects are stored.
+
+
+    - To get information about all the nodes in the cluster:
+
+        # List all cluster nodes
+        $ kubectl get nodes
+
+        # Get details about a specific node
+        $ kubectl describe nodes kube1
+
+
+
+- Cluster Components
+
+    - Many of the components that make up the K8s cluster are deployed using K8s itself.  All of these
+        components run in the 'kube-system' namespace.
+
+
+    - Kubernetes Proxy
+
+        - The K8s Proxy is responsible for routing network traffic to load-balanced services in the K8s
+            cluster.
+
+        - To do it's job, the proxy must be present on every node in the cluster.  K8s has an API object 
+            named DaemonSet, which is used in many clusters to accomplish this.
+
+        - To see the proxies:
+
+            $ kubectl get daemonSets --namespace=kube-system kube-proxy
+
+
+    - Kubernetes DNS
+
+        - K8s also runs a DNS server, which provides naming and discovery for the services that are defined
+            in the cluster.  Depending on the size of the cluster, you may see one or more DNS servers
+            running in your cluster.
+
+        - The DNS service is run as a K8s Deployment, which manages these replicas.
+
+        - To see the dns service:
+
+            $ kubectl get deployments --namespace=kube-system coredns
+
+        - There is also a K8s service that load balances the DNS server:
+
+            $ kubectl get services --namespace=kube-system kube-dns
