@@ -59,3 +59,219 @@
     - And we can run the image:
 
         $ docker build -t simple-node .
+
+
+
+- Optimizing Image Sizes
+
+    - One gotcha is that all files removed by subsequent layers are still present in the images.  They're
+        just inaccessible.
+
+    - Another pitfall revolves around image caching and building.  Each time you change a layer, it changes
+        every layer that comes after it.  So we should put things that change less often at the top of
+        the Dockerfile.
+
+
+
+- Image Security
+
+    - Never put passwords into containers.  Even if you delete the files they are contained in, they can
+        still be accessed.
+
+    - Secrets and images should never be mixed.
+
+    - We should only include the libraries we need to run the application.  Every additional library is
+        a potential vulnerability.
+
+
+
+- Multistage Image Builds
+
+    - One of the common ways images can get large is by doing the program compilation as part of the
+        construction of the application container image.  The problem with this is that it leaves all the
+        unnecessary development tools (which are often quite large) in your image, slowing down your
+        deployments.
+
+    - To resolve this problem, Docker introduced 'multistage builds'.  
+
+
+    - For instance, here is a simple Dockerfile for an application that builds a React.js frontend and
+        embeds it in a Go application:
+
+        FROM golang:1.17-alpine
+
+        # Install Node and NPM
+        RUN apk update && apk upgrade && apk add --no-cache git nodejs bash npm
+
+        # Get dependencies for Go part of build
+        RUN go get -u github.com/jteeuwen/go-bindata/...
+        RUN go get github.com/tools/godep
+        RUN go get github.com/kubernetes-up-and-running/kuard
+
+        WORKDIR /go/src/github.com/kubernetes-up-and-running/kuard
+
+        # Copy all sources in
+        COPY . .
+
+        # This is a set of variables that the build script expects
+        ENV VERBOSE=0
+        ENV PKG=github.com/kubernetes-up-and-running/kuard
+        ENV ARCH=amd64
+        ENV VERSION=test
+
+        # Do the build. This script is part of incoming sources.
+        RUN build/build.sh
+
+        CMD [ "/go/bin/kuard" ]
+
+
+    - The above image is 500 MB.  If we split the build into a build stage and a deploy stage, our final
+        deploy image is 20 MB.  The first image contains the Go compiler, the React.js toolchain, and the
+        source code for the program.  The second image only contains the compiled binary.
+
+        # STAGE 1: Build
+        FROM golang:1.17-alpine AS build
+
+        # Install Node and NPM
+        RUN apk update && apk upgrade && apk add --no-cache git nodejs bash npm
+
+        # Get dependencies for Go part of build
+        RUN go get -u github.com/jteeuwen/go-bindata/...
+        RUN go get github.com/tools/godep
+
+        WORKDIR /go/src/github.com/kubernetes-up-and-running/kuard
+
+        # Copy all sources in
+        COPY . .
+
+        # This is a set of variables that the build script expects
+        ENV VERBOSE=0
+        ENV PKG=github.com/kubernetes-up-and-running/kuard
+        ENV ARCH=amd64
+        ENV VERSION=test
+
+        # Do the build. Script is part of incoming sources.
+        RUN build/build.sh
+
+        # STAGE 2: Deployment
+        FROM alpine
+        USER nobody:nobody
+        COPY --from=build /go/bin/kuard /kuard
+        CMD [ "/kuard" ]
+
+
+    - To build and run this 'kuard' application image:
+
+        $ git clone https://github.com/kubernetes-up-and-running/kuard
+        $ cd kuard
+        $ docker build -t kuard .
+        $ docker run --rm -p 8080:8080 kuard
+
+
+
+- Storing Images in a Remote Repository
+
+    - K8s relies on the fact that the images described in a Pod manifest are available across every machine
+        in the cluster.  To do this, we store the images in a remote registry.
+
+    - You need to decide whether to store your images in a public or private registry.  Public registries
+        are great for sharing images with the world, while private registries are better for storing
+        images private to your service.
+
+
+    - Either way, to push an image, you need to authenticate to the registry.  You can usually do this
+        with the 'docker login' command.
+
+        - For hosting publicly readable images, Docker Hub is a great option.
+
+        - In this book, we'll be pushing to the GCP hosted Google Container Registry.
+
+
+    - Once you're logged in, you can tag the kuard image by prepending the target Docker registry.  You 
+        can also append an identifier that is used for the version.
+
+        $ docker tag kuard gcr.io/kuar-demo/kuard-amd64:blue
+
+
+    - Now, we can push the image:
+
+        $ docker push gcr.io/kuar-demo/kuard-amd64:blue
+
+
+
+- The Container Runtime Interface
+
+    - K8s relies on a container runtime to set up an application container using the container-specific
+        APIs native to the target OS.  On a Linux system, this means configuring cgroups and namespaces.
+
+    - The interface to this container runtime is defined by the Container Runtime Interface standard.
+        This API is implemented by a number of programs, including the 'containerd-cri' built into Docker.
+
+
+
+- Running Containers with Docker
+
+    - To run our container using Docker CLI:
+
+        $ docker run -d --name kuard \
+                        --publish 8080:8080 \
+                        gcr.io/kuar-demo/kuard-amd64:blue
+
+
+    - And we can ensure the application is running:
+
+        $ curl http://localhost:8080
+
+
+
+- Limiting Resource Usage
+
+    - Docker enables applications to use fewer resources by exposing the underlying cgroups provided by
+        the Linux kernel.  This is likewise used by k8s to limit the resources each pod uses.
+
+
+    - To limit kuard to 200 MB of memory and 1 GB of swap space:
+
+        # Stop and remove the current container
+        $ docker stop kuard
+        $ docker rm kuard
+
+        # Start a new container with limited memory usage
+        $ docker run -d --name kuard \
+                        --publish 8080:8080 \
+                        --memory 200m \
+                        --memory-swap 1G \
+                        gcr.io/kuar-demo/kuard-amd64:blue
+
+
+    - If the program in the container uses too much memory, it will be terminated.
+
+
+    - To limit CPU utilization:
+
+        $ docker run -d --name kuard \
+                        --publish 8080:8080 \
+                        --memory 200m \
+                        --memory-swap 1G \
+                        --cpu-shares 1024 \
+                        gcr.io/kuar-demo/kuard-amd64:blue
+
+
+
+- Cleanup
+
+    - Once you are done building an image, you can delete it with the 'docker rmi' command.
+
+        $ docker rmi <image-name>
+        $ docker rmi <image-id>
+
+
+    - Note that unless you explicitly delete an image, it will live on your system forever, even if you
+        build a new image with an identical name.  Building this new image simply moves the tag to the new
+        image, it doesn't delete or replace the old one.
+
+
+    - To remove all stopped containers, all untagged images, and all unused image layers cached as part of
+        the build process:
+
+        $ docker system prune
