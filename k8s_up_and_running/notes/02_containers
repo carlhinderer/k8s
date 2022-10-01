@@ -1,0 +1,61 @@
+-----------------------------------------------------------------------------
+| CHAPTER 2 - CREATING & RUNNING CONTAINERS                                 |
+-----------------------------------------------------------------------------
+
+- Container Images
+
+    - A 'container image' is a binary package that encapsulates all the files necessary to run a program
+        inside of an OS container.
+
+    - You can either build an image from your local filesystem or download a preexisting image from a
+        'container registry'.  In either case, once the image is present on your computer, you can run
+        that image to produce a running application inside an OS container.
+
+    - The Docker image format is by far the most popular and widespread container image format.  There is
+        an ongoing effort to standardize this format via the Open Container Initiative (OCI) project.
+
+    - The Docker format is made up of a series of filesystem layers.  Each layer adds, removes, or
+        modifies files from the preceding layer.  This is called an 'overlay' filesystem.
+
+
+    - Containers fall into 2 main formats:
+
+        1. System containers
+             - Mimic VMs and run a full boot process
+             - Often include a set of system services like ssh, cron, syslog
+             - Were much more common in early days of Docker
+
+        2. Application containers
+             - Commonly run a single program
+             - Provide perfect level of granularity for composing scalable applications
+
+
+
+- Building Applications with Docker
+
+    - For the remainder of the chapter, we'll look at building application containers.  We'll build a very
+        simple Node.js application.  The simplest of Node/npm/Express apps has 2 files:
+
+        package.json
+        server.js
+
+
+    - We'll put these 2 files in a directory 'app' and run:
+
+        $ npm install express --save
+
+
+    - Now, to package this up as a Docker image, create 2 more files:
+
+        Dockerfile
+        .dockerignore
+
+
+    - Now we can build the image:
+
+        $ docker build -t simple-node .
+
+
+    - And we can run the image:
+
+        $ docker build -t simple-node .
