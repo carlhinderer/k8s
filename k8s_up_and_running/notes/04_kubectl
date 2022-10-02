@@ -1,0 +1,250 @@
+-----------------------------------------------------------------------------
+| CHAPTER 4 - COMMON KUBECTL COMMANDS                                       |
+-----------------------------------------------------------------------------
+
+- Namespaces
+
+    - K8s uses 'namespaces' to organize objects in the cluster.  You can think of each namespaces as a 
+        folder that holds a set of objects.
+
+
+    - By default, kubectl interacts with the 'default' namespace.  If you want to use a different 
+        namespace, use the '--namespace' flag.  The shorthand '-n' flag can also be used.
+
+        $ kubectl --namespace=mystuff ...
+
+
+    - If you want to interact with all namespaces (ie to list all the pods in your cluster), the
+        '--all-namespaces' flag can be used.
+
+
+
+- Contexts
+
+    - If you want to change the default namespace more permanently, you can use a 'context'.  This gets
+        recorded in a kubectl config file, usually located at '$HOME/.kube/config'.
+
+
+    - To create a context for a different default namespace:
+
+        # Create the context
+        $ kubectl config set-context my-context --namespace=mystuff
+
+        # Use the context
+        $ kubectl config use-context my-context
+
+
+    - Contexts can also be used to manage different clusters (using the '--clusters' flag) or different
+        users (using the '--users') flags with the 'set-context' command.
+
+
+
+- Viewing K8s API Objects
+
+    - Everything contained in K8s is represented by a RESTful resource.  Throughout this book, we refer to
+        these resources as 'Kubernetes objects'.  Every object exists at a unique HTTP path.
+
+
+    - For example, this path leads to the representation of a pod named 'my-pod':
+
+        https://your-k8s.com/api/v1/namespaces/default/pods/my-pod
+
+
+    - The most basic command for viewing K8s objects is 'get'.
+
+        # Get list of resources in namespace
+        $ kubectl get <resource-name>
+
+        # Get details about a specific resource
+        $ kubectl get <resource-name> <obj-name>
+
+
+    - By default, kubectl uses a human-readable printer, which removes many deatils to fit each object on
+        one terminal line.  To get more information, we can use the '-o wide' flag.  If we want to view the
+        complete object, we can use the '-o json' or '-o yaml' flags.
+
+
+    - It's sometimes useful to remove the headers from kubectl output, for instance to pipe the output into
+        other commands.  Use the '--no-headers' flag to do this.
+
+
+    - We can extract specific fields from the output using the JSONPath query language.  For example, to
+        print the IP address of a specified pod:
+
+        $ kubectl get pods my-pod -o jsonpath --template={.status.podIP}
+
+
+    - To view multiple objects of different types, we can pass in a comma-separated list:
+
+        $ kubectl get pods,services
+
+
+    - To get more detailed information about a specific object, use the 'describe' command:
+
+        $ kubectl describe <resource-name> <obj-name>
+
+
+    - To see a list of supported fields for each type of K8s object, use the 'explain' command:
+
+        $ kubectl explain pods
+
+
+    - To monitor a specific resource for changes, use the '--watch' flag to continuously monitor it.
+
+
+
+- Creating, Updating, and Destroying K8s Objects
+
+    - Objects in the K8s API are represented as JSON or YAML files.  These files are either returned by 
+        the server in resonse to a query, or posted to the server as part of an API request.  These files
+        can be used to create, update, or delete objects on the K8s server.
+
+
+    - If you have a simple object stored in 'obj.yaml', you can create it by running:
+
+        $ kubectl apply -f obj.yaml
+
+
+    - If you need to make changes to an existing object, you can use the same command.  If the object
+        already has the desired state, it will just exit successfully without making any changes.
+
+        $ kubectl apply -f obj.yaml
+
+
+    - If you want to see what the apply command will do without actually making the changes, you can use
+        the '--dry-run' flag to print the objects to the terminal without actually making the changes.
+
+
+    - If you want to make interactive edits, you can run 'edit' to download the latest object state into
+        an editor:
+
+        $ kubectl edit <resource-name> <obj-name>
+
+
+    - The 'apply' command also records the history of previous configurations in an annotation within the
+        object.  You can manipulate these records using the 'edit-last-applied', 'set-last-applied', and
+        'view-last-applied' commands.
+
+        # Show the last state that was applied to the object
+        $ kubectl apply -f myobj.yaml view-last-applied
+
+
+    - To delete an object:
+
+        $ kubectl delete <resource-name> <obj-name>
+
+
+
+- Labeling and Annotating Objects
+
+    - 'Labels' and 'annotations' are tags for your objects.  You can update them for any object using
+        the 'label' and 'annotate' commands.
+
+        # Add a label
+        $ kubectl label pods bar color=red
+
+
+    - By default, both commands will not allow you to overwrite an exsiting label.  To do this, you need
+        to add the '--overwrite' flag.
+
+
+    - To remove a label:
+
+        $ kubectl label pods bar color-
+
+
+
+- Debugging Commands
+
+    - You can view the logs for a running container.  If there are multiple containers running in the pod,
+        you can choose the container with the '-c' flag.
+
+        $ kubectl logs <pod-name>
+
+
+    - If you want to continuously tail the logs, you can add the '-f' flag.
+
+
+    - To execute into a running container:
+
+        $ kubectl exec -it <pod-name> -- bash
+
+
+    - If you don't have bash or some other terminal available in your container, you can always attach it
+        to the running process:
+
+        $ kubectl attach -it <pod-name>
+
+
+    - You can copy files to and from a container with the 'cp' command:
+
+        $ kubectl cp <pod-name>:</path/to/remote/file> </path/to/local/file>
+
+
+    - If you want to access your Pod via the network, you can use the 'port-forward' command to forward
+        network traffic from the local machine to the Pod.  This enables you to securely tunnel network 
+        traffic through to containers that might not be exposed anywhere on the public network.
+
+        # Forward traffic from port 8080 on local machine to port 80 in container
+        $ kubectl port-forward <pod-name> 8080:80
+
+
+    - To see the most recent K8s events:
+
+        $ kubectl get events
+
+
+    - To see the resources being used in either nodes or pods (note these commands only work if there is
+        a metrics server running in your cluster):
+
+        # Resources used in nodes
+        $ kubectl top nodes
+
+        # Resources used in pods
+        $ kubectl top pods
+
+
+
+- Cluster Management
+
+    - The kubectl tool can also be used to manage the cluster itself.
+
+
+    - The most common action people take to manage the cluster is to cordon and drain a node.  This is
+        typically done when you want to remove a physical machine for repairs or upgrades.
+
+        - When you 'cordon' a node, you prevent future pods from being scheduled onto this machine.
+
+        - When you 'drain' a node, you remove any pods that are currently running on that machine.
+
+
+    - The 'kubectl cordon' and 'kubectl drain' commands are used to safely remove the node from the cluster.
+        The 'kubectl uncordon' command is used to re-enable the node.
+
+
+
+- Command Autocompletion
+
+    - To activate kubectl auto completion:
+
+        $ source <(kubectl completion bash)
+
+
+    - To make this automatic:
+
+        $ echo "source <(kubectl completion bash)" >> ${HOME}/.bashrc
+
+
+
+- Alternate Ways of Viewing Your Cluster
+
+    - There are common plug-ins available to integrate K8s with IDEs like VS Code, Eclipse, and IntelliJ.
+
+
+    - There are several open source graphical dashboards like Rancher Dashboard and Headlamp.
+
+
+    - To get help for kubectl:
+
+        $ kubectl help
+        $ kubectl help <command-name>

@@ -201,3 +201,8 @@
         - There is also a K8s service that load balances the DNS server:
 
             $ kubectl get services --namespace=kube-system kube-dns
+
+
+    - Kubernetes UI
+
+        - Most cloud providers have a GUI that provides a visualization of your cluster.
