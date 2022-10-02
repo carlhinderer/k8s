@@ -1,0 +1,422 @@
+-----------------------------------------------------------------------------
+| CHAPTER 5 - PODS                                                          |
+-----------------------------------------------------------------------------
+
+- Canonical Example of a Multi-Container Unit
+
+      Web Serving      Git Sync
+      Container        Container
+             \        /
+               Shared
+             Filesystem
+
+
+
+- Pods in Kubernetes
+
+    - A 'Pod' is a collection of application containers and volumes running in the same execution 
+        environment.  Pods are the smallest deployable artifact in a K8s cluster.
+
+    - Each container within a Pod runs in it's own cgroup, but they share a number of Linux namespaces.
+        Applications running in the same Pod have the same network namespace (IP address and port space),
+        the same hostname, and can communicate using native IPC channels.
+
+    - Applications in different pods have different IP addresses and hostnames.  They might as well be on
+        different servers.
+
+    - When thinking about pods, you should ask whether the containers would work correctly if they were on
+        different machines.  If they would not, they should be in the same pod together.
+
+
+
+- The Pod Manifest
+
+    - Pods are described in a Pod 'manifest', which is a text file representation of the K8s API object.
+        This is an example of declarative configuration.
+
+    - The Kubernetes API Server accepts and processes Pod manifests before storing them in persistent
+        storage (etcd).
+
+    - The Scheduler also uses the K8s API to find pods that haven't been scheduled to a node.  It then
+        places them on nodes according to resources and constraints.  It tries to put replicas of the same
+        pod on different nodes for fault tolerance.
+
+    - Once scheduled to a node, pods don't move, and must be explicitly destroyed and rescheduled.
+
+
+
+- Creating a Pod
+
+    - To run a pod with our same kuard server:
+
+        $ kubectl run kuard --image=gcr.io/kuar-demo/kuard-amd64:blue
+
+
+    - To see the status of the pod:
+
+        $ kubectl get pods
+
+
+    - To delete the pod:
+
+        $ kubectl delete pods/kuard
+
+
+
+- Creating a Pod Manifest
+
+    - Pod manifests can be written in JSON or YAML, but YAML is generally preferred, since is slightly more
+        human-editable and supports comments.
+
+
+    - Pod manifests include:
+
+        - A 'metadata' section for describing the pod and it's labels
+        - A 'spec' section for describing volumes and a list of containers that will run in the pod
+
+
+    - For example, we had this command to run kuard with Docker:
+
+        $ docker run -d --name kuard \
+                        --publish 8080:8080 \
+                        gcr.io/kuar-demo/kuard-amd64:blue
+
+
+    - We can get a similar result using this manifest:
+
+        kuard-pod.yaml
+        -----------------------
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: kuard
+        spec:
+          containers:
+            - image: gcr.io/kuar-demo/kuard-amd64:blue
+              name: kuard
+              ports:
+                - containerPort: 8080
+                  name: http
+                  protocol: TCP
+
+
+
+- Running Pods
+
+    - To launch a single instance of kuard:
+
+        $ kubectl apply -f kuard-pod.yaml
+
+
+    - We can list Pods to get their current status.  If a Pod is listed as 'Pending', it has been
+        submitted but not scheduled yet.
+
+        $ kubectl get pods
+
+
+    - To get more detail about an individual pod:
+
+        $ kubectl describe pods kuard
+
+
+    - You can delete a pod either by name or by using the file you started it with.  When a pod is deleted,
+        it is not immediately killed.  It goes into a termination grace period (30s by default), and will
+        have a status of 'Terminated' during that time.
+
+        # Delete pod by name
+        $ kubectl delete pods/kuard
+
+        # Delete using manifest file
+        $ kubectl delete -f kuard-pod.yaml
+
+
+
+- Accessing Your Pod
+
+    - The 'kubectl logs' command downloads the current logs from the running instance.  Adding the '-f'
+        flag will cause the logs to stream continuously.  Adding the '--previous' flag will get logs from
+        a previous instance of the container, which can help debug startup problems.
+
+        $ kubectl logs kuard
+
+
+    - To execute into the container itself:
+
+        # Execute command in container
+        $ kubectl exec kuard -- date
+
+        # Get interactive shell in container
+        $ kubectl exec -it kuard -- bash
+
+
+    - The 'kubectl cp' command can be used to copy files into a container.  This is an antipattern, but
+        can occasionally be used to solve an urgent problem.
+
+
+
+- Health Checks
+
+    - When you run your application as a container in K8s, it is automatically kept alive using a 'process
+        health check'.  This simply ensures the main process of your application is always running.  If
+        it isn't, K8s restarts it.
+
+
+    - This simple check may be insufficient, because the main process might be running even if the 
+        application is deadlocked.  To address this, K8s can also check for 'application liveness'.
+        Liveness checks application-specific logic, like loading a web page.  The liveness checks are
+        defined in the manifest.
+
+
+    - To add a liveness check to our kuard container, we'll run HTTP requests to the '/healthy' path:
+
+        kuard-pod-health.yaml
+        -----------------------------------
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: kuard
+        spec:
+          containers:
+            - image: gcr.io/kuar-demo/kuard-amd64:blue
+              name: kuard
+              livenessProbe:
+                httpGet:
+                  path: /healthy
+                  port: 8080
+                initialDelaySeconds: 5
+                timeoutSeconds: 1
+                periodSeconds: 10
+                failureThreshold: 3
+              ports:
+                - containerPort: 8080
+                  name: http
+                  protocol: TCP
+
+
+    - The probe sends an HTTP GET request to /healthy on port 8080 of the container.
+
+        - The probe starts 5 seconds after all containers in the pod are created
+        - The probe must respond within a 1-second timeout
+        - The HTTP status code must be >= 200 and < 400
+        - K8s will call the probe once every 10 s
+        - After 3 consecutive probes fail, the container will fail and restart
+
+
+    - To test this:
+
+        # Launch pod
+        $ kubectl apply -f kuard-pod-health.yaml
+
+        # Forward ports
+        $ kubectl port-forward kuard 8080:8080
+
+      Now, we can navigate to 'http://localhost:8080' in a web browser.  Click the 'Liveness Probe' tab.
+        We'll see a table of all the probes this instance of kuard has received.
+
+
+    - If we click 'Fail', kuard will start to fail health checks, and K8s will restart the container.  To
+        see details about the restart:
+
+        $ kubectl describe pods kuard
+
+
+    - Note that we can change how a pod responds to failed health checks using the pods 'restartPolicy'.
+        There are 3 options for the restartPolicy:
+
+        1. Always (default)
+        2. OnFailure (only on liveness failure or nonzero process exit code)
+        3. Never
+
+
+    - K8s supports both 'liveness' and 'readiness' checks.  Liveness determines whether an application is
+        running properly.  Containers that fail liveness checks are restarted.
+
+      Readiness describes when a container is ready to service user requests.  Containers that fail
+        readiness checks are removed from service load balancers.
+
+
+    - 'Startup Probes' have recently been introduced to K8s as an alternative for slow-starting containers.
+        When a pod is started, the startup probe is run before any other probing of the pod is started.
+
+      The startup probe proceeds until it either times out (in which case the Pod is restarted) or it
+        succeeds, at which point the liveness probe takes over.
+
+
+    - In addition to HTTP checks, K8s also supports 'tcpSocket' health checks that open a TCP socket.  If
+        the connection succeeds, the probe succeeds.  This is useful in non-HTTP applications like
+        databases.
+
+
+    - Finally, K8s allows 'exec probes', which execute a script in the context of the container.  If the
+        script returns a 0 exit code, the probe succeeds.  Otherwise, it fails.
+
+
+
+- Resource Management
+
+    - 'Utilization' is the amount a resource is being used over the amount of resource that has been
+        purchased.  K8s allows users to specify 2 different resource metrics:
+
+        1. 'Resource Requests' specify the minimum amount of a resource required to run an application.
+
+        2. 'Resource Limits' specify the maximum amount of a resource than an application can consume.
+
+
+    - Here, we create a Resource Request that defines the kuard container must land on a node with half
+        a CPU (500 millicores) and 128 MB free.
+
+        kuard-pod-resreq.yaml
+        ------------------------------
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: kuard
+        spec:
+          containers:
+            - image: gcr.io/kuar-demo/kuard-amd64:blue
+              name: kuard
+              resources:
+                requests:
+                  cpu: "500m"
+                  memory: "128Mi"
+              ports:
+                - containerPort: 8080
+                  name: http
+                  protocol: TCP
+
+
+    - Note that resources are requested per-container, not per-pod, since different containers may have
+        very different resource requirements.
+
+
+    - Here, we create a Resource Limit that defines the kuard container has a limit of 1 CPU and 256 MB
+        of memory, in addition to the requests defined before.
+
+        kuard-pod-reslim.yaml
+        -----------------------------
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: kuard
+        spec:
+          containers:
+            - image: gcr.io/kuar-demo/kuard-amd64:blue
+              name: kuard
+              resources:
+                requests:
+                  cpu: "500m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "1000m"
+                  memory: "256Mi"
+              ports:
+                - containerPort: 8080
+                  name: http
+                  protocol: TCP
+
+
+    - Note that we can throttle CPU on the fly if there are too many pods on a machine, but we can't do that
+        with memory, since it's already been allocated.  In that case, K8s has to restart the container
+        with less memory.
+
+
+
+- Persisting Data with Volumes
+
+    - To add a volume to a pod manifest, we need to add a 'spec.volumes' setion, which defines all the
+        volumes that may be accessed by containers in the pod manifest.  We also need to add the
+        'volumeMounts' array in the container definition, which specifies which volumes are mounted to
+        which containers.
+
+
+    - Here, we define a new volume named 'kuard-data', which the kuard container mounts to the '/data' path.
+
+        kuard-pod-vol.yaml
+        --------------------------
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: kuard
+        spec:
+          volumes:
+            - name: "kuard-data"
+              hostPath:
+              path: "/var/lib/kuard"
+          containers:
+            - image: gcr.io/kuar-demo/kuard-amd64:blue
+              name: kuard
+              volumeMounts:
+                - mountPath: "/data"
+                  name: "kuard-data"
+              ports:
+                - containerPort: 8080
+                  name: http
+                  protocol: TCP
+
+
+
+- Different Ways of Using Volumes with Pods
+
+    - Communication/Synchronization
+
+        - In the first example of a pod, we saw how 2 containers used a shared volume to serve a site
+            while keeping it synchronized to a remote Git location.
+
+        - To achieve this, the Pod uses an 'emptyDir' volume.  This type of volume is scoped to the Pod's
+            lifespan, but it can be shared between 2 containers.  This forms the basis for communication
+            between our 2 containers.
+
+
+    - Cache
+
+        - An application may use a volume that is valuable for performance, but not required for the correct
+            operation of the application.
+
+        - For instance, maybe it has pre-rendered thumbnails or larger images.
+
+        - You want this cache to survive a container restart due to a health check failure, so 'emptyDir'
+            works well for this use case also.
+
+
+    - Persistent Data
+
+        - Sometimes a volume will be used for truly persistent data.  This type of volume should move 
+            between nodes if a node fails or a Pod is moved to a different node.
+
+        - To achieve this, K8s supports a wide variety of remote network storage volumes, including widely
+            used protocols like NFS and iSCSI, as well as cloud provider network storage like AWS EBS.
+
+
+    - Mounting the Host Filesystem
+
+        - Other applications don't need a persistent volume, but they need some access to the underlying
+            host filesystem.
+
+        - For instance, they may need access to the /dev filesystem to perform raw block-level access to
+            a device on the system.
+
+        - For these cases, K8s supports the 'hostPath' volume, which can mount to arbitrary locations on 
+            the worker node into the container.
+
+        - In this case, the volume created is '/var/lib/kuard':
+
+            volumes:
+              - name: "kuard-data"
+                nfs:
+                  server: my.nfs.server.local
+                  path: "/exports"
+
+
+
+- Pod Deployment
+
+    - Once you've submitted the Pod manifest to the API server, the K8s scheduler finds a machine where a
+        Pod can fit and schedules the Pod to that machine.
+
+    - After the Pod is scheduled, the 'kubelet' daemon on that machine is responsible for creating the
+        containers that correspond to the Pod, as well as performing any health checks defined in the Pod
+        mainfest.
+
+    - Once a Pod is scheduled to a node, no rescheduling occurs, even if that node fails.  To create
+        multiple replicas of the same Pod, you have to create and name them manually.  This is why we
+        should use a 'ReplicaSet' object to automate the creation of multiple identical pods.
