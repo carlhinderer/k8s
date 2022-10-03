@@ -1,0 +1,211 @@
+-----------------------------------------------------------------------------
+| CHAPTER 9 - REPLICA SETS                                                  |
+-----------------------------------------------------------------------------
+
+- ReplicaSets
+
+    - So far, we have run Pods as one-off singletons.  More often than not, you want multiple replicas of
+        a container running at a particular time for a variety of reasons:
+
+        1. Redundancy for fault tolerance
+
+        2. Scale for higher request-processing capacity
+
+        3. Sharding for handling different parts of computation in parallel
+
+
+    - You could manually create multiple pods using similar Pod manifests, but this is dedious and 
+        error-prone.  A 'ReplicaSet' acts as a cluster-wide Pod manager, ensuring the right types and
+        numbers of Pods are running at all times.
+
+
+    - ReplicaSets are the building blocks for common application deployment patterns and for self-healing
+        applications at the infrastructure level.  Pods managed by ReplicaSets are automatically restarted
+        under certain error conditions, like node failures or network partitions.
+
+
+    - A 'reconciliation loop' runs constantly, ensuring that the current state matches the desired state.
+        The ReplicaSet is an example of a reconciliation loop, ensuring the number of Pods observed always
+        matches the desired state.
+
+
+
+- Relating Pods and ReplicaSets
+
+    - The relationship between ReplicaSets and Pods is loosely coupled.  The ReplicaSets create and manage
+        Pods, but they don't own the Pods they create.
+
+
+    - ReplicaSets use label queries identify the set of Pods they should be managing.  They use the same API
+        we use when creating Pods.
+
+
+    - ReplicaSets that create multiple Pods and the services that load balance them are totally separate,
+        decoupled API objects.
+
+
+    - If we have a Pod that is not behaving correctly, we can change the labels to disassociate it from the
+        ReplicaSet.  This way it will be replaced, but it is still running, making it easier to debug.
+
+
+
+- ReplicaSet Spec
+
+    - ReplicaSets are designed to represent a single, scalable microservice inside your architecture.  Every
+        Pod the ReplicaSet controller creates is homogenous.  Typically, they are fronted by a K8s service
+        load balancer, which spreads traffic among the Pods that make up the service.
+
+
+    - Like all K8s objects, ReplicaSets are defined using a specification.  They must have a unique name,
+        a spec section that describes the number of Pods, and a Pod template that describes the Pod to be
+        created.
+
+        kuard-rs.yaml
+        -----------------------------
+        apiVersion: apps/v1
+        kind: ReplicaSet
+        metadata:
+          labels:
+            app: kuard
+            version: "2"
+          name: kuard
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app: kuard
+              version: "2"
+          template:
+            metadata:
+              labels:
+                app: kuard
+                version: "2"
+            spec:
+              containers:
+                - name: kuard
+                  image: "gcr.io/kuar-demo/kuard-amd64:green"
+
+
+
+    - When the number of Pods in the current state is less than the number of Pods in the desired state, the
+        ReplicaSet controller will create new Pods using a template contained in the ReplicaSet
+        specification.
+
+
+    - Here is an example of a Pod template in a ReplicaSet:
+
+        template:
+          metadata:
+            labels:
+              app: helloworld
+              version: v1
+          spec:
+            containers:
+              - name: helloworld
+                image: kelseyhightower/helloworld:v1
+                ports:
+                  - containerPort: 80
+
+
+    - ReplicaSets monitor cluster state using a set of Pod labels to filter Pod listings and track Pods
+        running within a cluster.
+
+
+
+- Creating a ReplicaSet
+
+    - ReplicaSets are created by submitting a ReplicaSet object to the K8s API.
+
+        $ kubectl apply -f kuard-rs.yaml
+
+
+    - To see the running pod:
+
+        $ kubectl get pods
+
+
+    - To get more information about a ReplicaSet:
+
+        $ kubectl describe rs kuard
+
+
+    - To find a ReplicaSet from a Pod:
+
+        $ kubectl get pods <pod-name> -o=jsonpath='{.metadata.ownerReferences[0].name}'
+
+
+    - To find a set of Pods from a ReplicaSet:
+
+        $ kubectl get pods -l app=kuard,version=2
+
+
+
+- Scaling ReplicaSets
+
+    - You can scale ReplicaSets up or down by updating the 'spec.replicas' key on the ReplicaSet object
+        stored in K8s.
+
+
+    - The easiest way to change the replica count is imperatively using the 'scale' command.  However,
+        we should also change the manifest in source control if we do this.
+
+        $ kubectl scale replicasets kuard --replicas=4
+
+
+    - To do this declaratively, we can change the 'kuard-rs.yaml' file.
+
+        ...
+        spec:
+          replicas: 3
+        ...
+
+      And we can apply the changes:
+
+        $ kubectl apply -f kuard-rs.yaml
+
+
+
+- Autoscaling a ReplicaSet
+
+    - Instead of defining a fixed number of replicas, we may want to scale in response to CPU usage, 
+        memory usage, or custom application metrics.  K8s can handle these scenarios using 'Horizontal
+        Pod Autoscaling'.
+
+
+    - It's called 'horizontal' (adding more pods) to distinguish the autoscaling from 'vertical' (increasing
+        resources for an existing pod).  Many solutions also allow 'cluster autoscaling', where the 
+        number of machine in the cluster is scaled in response to resource needs.
+
+
+    - Autoscaling requires the presence of the 'metrics-server' in your cluster.  This server keeps track
+        of metrics and produces an API for consuming metrics that HPA uses when making scaling decisions.
+        Most installations of K8s include it by default.
+
+      You can verify it's presence with:
+
+        $ kubectl get pods --namespace=kube-system
+
+
+    - CPU usage scaling is the most common use case.  This is most useful for request-based systems that
+        consume CPU in proportion to the number of requests they are receiving.  To scale a ReplicaSet:
+
+        $ kubectl autoscale rs kuard --min=2 --max=5 --cpu-percent=80
+
+
+    - To view information about the autoscalers:
+
+        $ kubectl get horizontalpodautoscalers
+        $ kubectl get hpa
+
+
+
+- Deleting ReplicaSets
+
+    - We can delete a ReplicaSet with the 'delete' command.
+
+        $ kubectl delete rs kuard
+
+
+    - If we want to delete the ReplicaSet, but keep the Pods:
+
+        $ kubectl delete rs kuard --cascade=False
