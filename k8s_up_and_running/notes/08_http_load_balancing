@@ -1,0 +1,271 @@
+-----------------------------------------------------------------------------
+| CHAPTER 8 - HTTP LOAD BALANCING WITH INGRESS                              |
+-----------------------------------------------------------------------------
+
+- HTTP Load Balancing
+
+    - A critical part of any application is getting network traffic to and from the application.  As 
+        described in Chapter 7, K8s has a set of capabilities to enable services to be exposed outside of
+        the cluster.  For many users and simple use cases, these capabilities are sufficient.
+
+
+    - But the Service object operates at Layer 4, so it only forwards TCP and UDP connections and doesn't
+        look inside of those connections.  Because of this, hosting many applications on a cluster uses
+        many different exposed services.
+
+      If the services are 'NodePort' type, clients connect to a unique port per service.  If the services
+        are 'LoadBalancer' type, you'll be allocating expensive and scarce cloud resources for each
+        service.
+
+
+    - When solving this problem in non-K8s solutions, we use 'virtual hosting', which allows hosting many
+        HTTP sites on a single IP address.  
+
+        - A load balancer or reverse proxy accepts incoming connections on Ports 80 and 443.  
+
+        - That program then parses the HTTP connection, and, based on the Host header and the URL path,
+            proxies the HTTP call to some other program.
+
+        - In this way, the load balancer or reverse proxy directs traffic to the right upstream server.
+
+
+    - K8s calls it's HTTP-based load balancing system 'Ingress'.  It is a K8s-native way to implement the
+        virtual hosting pattern.  The K8s Ingress system works to simplify this process by:
+
+        - Standardizing the load balancer configuration
+        - Moving that configuration to a standard K8s object
+        - Merge multiple Ingress objects into a single config for the load balancer
+
+
+                                          K8s Cluster
+           Client ->  Ingress Proxy       ----------------------------------
+                      (Service Type:   ->  Ingress      ->  Upstream Service 1
+                       LoadBalancer)       Controller   ->  Upstream Service 2
+
+
+
+- Installing Coutour
+
+    - Since there are so many different HTTP load balancers, there is no one standard way to do Ingress,
+        and this approach requires a lot of manual configuration.
+
+
+    - In our case, we'll use an Ingress Controller called 'Contour'.  This is a controller built to
+        configure the open source CNCF 'Envoy' load balancer.  To install Coutour:
+
+        $ kubectl apply -f https://projectcontour.io/quickstart/contour.yaml
+
+
+    - This command creates a namespace called 'project contour'.  Inside that namespace it creates a
+        Deployment and an external-facing service of 'type: LoadBalancer'.  After you install it, you can
+        fetch the external address of Contour:
+
+        $ kubectl get -n projectcontour service envoy -o wide
+
+
+    - We'll assume we have a domain called 'example.com'.  We'll configure 2 DNS entries: 'alpaca.example.com'
+        and 'bandicoot.example.com'.  If you have an IP address for your external load balance, create A
+        addresses.  If you have a hostname, create CNAME records.
+
+
+    - If you don't have a domain or if you are using a local solution such as MiniKube, you can set up a
+        local configuration by editing your /etc/hosts file.  Add a line like:
+
+        <ip-address> alpaca.example.com bandicoot.example.com
+
+
+
+- Using Ingress
+
+    - Now, we'll create a few upstream services:
+
+        $ kubectl create deployment be-default \
+                                    --image=gcr.io/kuar-demo/kuard-amd64:blue \
+                                    --replicas=3 \
+                                    --port=8080
+
+        $ kubectl expose deployment be-default
+
+
+        $ kubectl create deployment alpaca \
+                                    --image=gcr.io/kuar-demo/kuard-amd64:green \
+                                    --replicas=3 \
+                                    --port=8080
+
+        $ kubectl expose deployment alpaca
+
+
+        $ kubectl create deployment bandicoot \
+                                    --image=gcr.io/kuar-demo/kuard-amd64:purple \
+                                    --replicas=3 \
+                                    --port=8080
+
+        $ kubectl expose deployment bandicoot
+
+
+        $ kubectl get services -o wide
+
+
+
+- Simplest Usage
+
+    - The simplest way to use Ingress is to have it just blindly pass everything through to the same
+        upstream service.
+
+        simple-ingress.yaml
+        -----------------------------
+        apiVersion: networking.k8s.io/v1
+        kind: Ingress
+        metadata:
+          name: simple-ingress
+        spec:
+          defaultBackend:
+            service:
+              name: alpaca
+              port:
+                number: 8080
+
+
+    - Create this ingress:
+
+        $ kubectl apply -f simple-ingress.yaml
+
+
+    - To verfiy that everything was set up correctly:
+
+        $ kubectl get ingress
+        $ kubectl describe ingress simple-ingress.yaml
+
+
+    - Now, any HTTP request that hits the Ingress controller will be forwarded to the 'alpaca' service.
+
+
+
+- Using Hostnames
+
+    - Now, we'll start directing traffic based on the properties of the request.  The most common example
+        of this is to have the Ingress system look at the HTTP host header (set to the domain of the
+        original URL) and direct traffic based on the header.
+
+        host-ingress.yaml
+        -----------------------------
+        apiVersion: networking.k8s.io/v1
+        kind: Ingress
+        metadata:
+          name: host-ingress
+        spec:
+          defaultBackend:
+            service:
+              name: be-default
+              port:
+                number: 8080
+          rules:
+          - host: alpaca.example.com
+            http:
+              paths:
+              - pathType: Prefix
+                path: /
+                backend:
+                  service:
+                    name: alpaca
+                    port:
+                      number: 8080
+
+
+    - Create this ingress:
+
+        $ kubectl apply -f host-ingress.yaml
+
+
+    - To verfiy that everything was set up correctly:
+
+        $ kubectl get ingress
+        $ kubectl describe ingress simple-ingress.yaml
+
+
+    - Now, we can address the alpaca service via 'http://alpaca.example.com'.  If we use any other endpoint,
+        we'll get the default service.
+
+
+
+- Using Paths
+
+    - We can also direct traffic based on the HTTP paths.  In this example,
+
+        - We direct everything coming into 'http://bandicoot.example.com' to the bandicoot service
+
+        - We also send everything coming into 'http://bandicoot.example.com/a' to the alpaca service
+
+
+    - Here is the definition:
+
+        path-ingress.yaml
+        -----------------------------
+        apiVersion: networking.k8s.io/v1
+        kind: Ingress
+        metadata:
+          name: path-ingress
+        spec:
+          rules:
+          - host: bandicoot.example.com
+            http:
+              paths:
+              - pathType: Prefix
+                path: "/"
+                backend:
+                  service:
+                    name: bandicoot
+                    port:
+                      number: 8080
+              - pathType: Prefix
+                path: "/a/"
+                backend:
+                  service:
+                    name: alpaca
+                    port:
+                      number: 8080
+
+
+
+- Cleanup
+
+    - To clean up:
+
+        $ kubectl delete ingress host-ingress path-ingress simple-ingress
+        $ kubectl delete service alpaca bandicoot be-default
+        $ kubectl delete deployment alpaca bandicoot be-default
+
+
+
+- Alternate Ingress Implementations
+
+    - Each cloud provider has an Ingress implementation that exposes the specific cloud-based L7 load
+        balancer for that cloud.  This costs more, but reduces the load on the cluster and the
+        management burden for the operators.
+
+
+    - The most popular generic Ingress controller is the 'NGINX Ingress Controller'.  It is open source.
+        It reads Ingress objects, then merges them into an NGINX config file.  It has an enormous number
+        of features and options exposed via annotations.
+
+
+    - Emissary and Gloo are 2 other Envoy-based Ingress controllers that are focused on being API gateways.
+
+
+    - Traefik is a reverse proxy implemented in Go that can also function as an Ingress controller.
+
+
+
+- The Future of Ingress
+
+    - The Ingress object provides a very useful abstraction for configuring L7 load balancers, but it
+        doesn't have all the features uses want.  Additionally, it is easy to misconfigure Ingress, and
+        opens the door for conflicts from different implementations.
+
+
+    - Ingress was also created before the idea of a service mesh (ie Istio and Linkerd) was well-known.
+        The intersection of Ingress and service meshes is still being defined.
+
+
+    - The future of HTTP Load Balancing for K8s looks to be the Gateway API.  This project is intended to
+        develop a more modern API for routing in K8s.
