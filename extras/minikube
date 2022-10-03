@@ -1,0 +1,53 @@
+-----------------------------------------------------------------------------
+| USING MINIKUBE                                                            |
+-----------------------------------------------------------------------------
+
+- Installing MiniKube
+
+    $ wget https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+    $ chmod +x minikube-linux-amd64
+    $ sudo mv minikube-linux-amd64 /usr/local/bin/minikube
+
+    # Confirm version installed
+    $ minikube version
+
+
+
+- Create a Local Cluster
+
+    # Create a cluster
+    $ minikube start
+
+    # Check cluster status
+    $ kubectl cluster-info
+
+    # View config
+    $ kubectl config view
+
+    # Check running nodes
+    $ kubectl get nodes
+
+    # Access minikube using ssh
+    $ minikube ssh
+
+    # Check minikube add-ons
+    $ minikube addons list
+
+    # Launch dashboard
+    $ minikube dashboard --url
+
+    # When done with cluster
+    $ minikube stop
+
+    # Delete cluster
+    $ minikube delete
+
+
+
+- Switch Between Clusters
+
+    # List all contexts
+    $ kubectl config get-contexts
+
+    # Switch to a context
+    $ kubectl config use-context CONTEXT_NAME
