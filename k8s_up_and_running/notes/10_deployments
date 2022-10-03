@@ -1,0 +1,295 @@
+-----------------------------------------------------------------------------
+| CHAPTER 10 - DEPLOYMENTS                                                  |
+-----------------------------------------------------------------------------
+
+- Deployments
+
+    - We can use Pods, ReplicaSets, and Services to build a single instance of our application.  However,
+        Pods and ReplicaSets are expected to be tied to specific container images that don't change.
+
+
+    - The 'Deployment' object exists to manage the release of new versions.  They represent deployed
+        applications that transcend any particular version.  They allow you to move between versions
+        in a careful and specifiable way, performing health checks along the way.
+
+
+    - The actual mechanics of the software rollout are controlled by a Deployment Controller that runs in
+        the K8s cluster itself.  This means you can let a Deployment proceed unattended and it will still
+        operate correctly and safely.  This makes it easy to integrate into CI tools and services.
+
+
+
+- First Deployment
+
+    - Like all K8s objects, a Deployment can be represented as a declarative YAML object.
+
+        kuard-deployment.yaml
+        ----------------------------
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: kuard
+          labels:
+            run: kuard
+        spec:
+          selector:
+            matchLabels:
+              run: kuard
+          replicas: 1
+          template:
+            metadata:
+              labels:
+                run: kuard
+            spec:
+              containers:
+              - name: kuard
+                image: gcr.io/kuar-demo/kuard-amd64:blue
+
+
+    - To create the deployment:
+
+        $ kubectl create -f kuard-deployment.yaml
+
+
+    - Note that the same way the RepliaSets manage Pods, Deployments manage ReplicaSets.  As with all K8s
+        relationships, this is managed with labels and a label selector.  To see the label selector, look
+        at the Deployment object.
+
+        $ kubectl get deployments kuard -o jsonpath --template {.spec.selector.matchLabels}
+
+
+    - Using that label selector, we can find the ReplicaSet:
+
+        $ kubectl get replicasets --selector=run=kuard
+
+
+    - We can resize the Deployment using the imperative 'scale' command:
+
+        $ kubectl scale deployments kuard --replicas=2
+
+
+    - Note that if we scale the ReplicaSet up or down, the Deployment will override this and return it to 
+        the number defined in the Deployment.  If we want to scale the ReplicaSet directly, we need to delete
+        the deployment with '--cascade=False' first.
+
+
+
+- Creating Deployments
+
+    - Let's take the deployment we aleady have and download it so we can see all the fields.  We'll replace
+        the file with it.
+
+        $ kubectl get deployments kuard -o yaml > kuard-deployment.yaml
+        $ kubectl replace -f kuard-deployment.yaml --save-config
+
+
+    - Note that we ran 'kubectl replace' to replace the file instead of 'kubectl apply'.  This adds an
+        annotation so that kubectl will know what the last applied config was for smarter merging of
+        configs.
+
+
+    - In addition to the Pod and ReplicaSet information, there is also a 'strategy' object:
+
+        ...
+          strategy:
+            rollingUpdate:
+              maxSurge: 25%
+              maxUnavailable: 25%
+            type: RollingUpdate
+        ...
+
+
+
+- Managing Deployments
+
+    - To get detailed information about the Deployment:
+
+        $ kubectl describe deployments kuard
+
+
+    - The 'OldReplicaSets' and 'NewReplicaSets' point to the ReplicaSets being managed.  The old one will
+        be populated when a rollout is in process.  To get information about the rollout:
+
+        $ kubectl rollout status
+
+        $ kubectl rollout history
+
+
+
+- Scaling Deployments
+
+    - To scale a deployment declaratively, we update the YAML file:
+
+        ...
+        spec:
+          replicas: 3
+        ...
+
+
+    - Update the deployment with:
+
+        $ kubectl apply -f kuard-deployment.yaml
+
+
+    - Ensure the update was successful with:
+
+        $ kubectl get deployments kuard
+
+
+
+- Updating a Container Image
+
+    - To update the container to a new version of the software, update the YAML file:
+
+        containers:
+        - image: gcr.io/kuar-demo/kuard-amd64:green
+          imagePullPolicy: Always
+
+
+    - We also need to annotate the Deployment to record some information about the update.  Note that we
+        should not do this for a simple scaling operation, since it will trigger a full rollout.
+
+        ...
+        spec:
+          ...
+          template:
+            metadata:
+              annotations:
+                kubernetes.io/change-cause: "Update to green kuard"
+        ...
+
+
+    - Update the Deployment:
+
+        $ kubectl apply -f kuard-deployment.yaml
+
+
+    - To monitor the rollout:
+
+        $ kubectl rollout status deployments kuard
+
+
+    - To see the old and new ReplicaSets managed by the Deployments, along with the images being used:
+
+        $ kubectl get replicasets -o wide
+
+
+    - If you are in the middle of a rollout and you want to temporarily pause it:
+
+        $ kubectl rollout pause deployments kuard
+
+
+    - To resume where you left off:
+
+        $ kubectl rollout resume deployments kuard
+
+
+
+- Rollout History
+
+    - K8s deployements maintain a history of rollouts.  To see the history:
+
+        $ kubectl rollout history deployment kuard
+
+
+    - To see deatils about a particular revision:
+
+        $ kubectl rollout history deployment kuard --revision=2
+
+
+    - Now, let's update the deployment to go back to the 'blue' version, add a change comment, and apply
+        the update.  Then, we'll roll it back.
+
+        # Perform the update
+        $ kubectl apply -f kuard-development.yaml
+
+        # Check the history
+        $ kubectl rollout history deployment kuard
+
+        # Roll it back
+        $ kubectl rollout undo deployments kuard
+
+
+    - To roll back to a specific revision:
+
+        $ kubectl rollout undo deployments kuard --to-revision=3
+
+
+    - By default, a Deployment keeps the history of the last 10 revisions.  To change this:
+
+        ...
+        spec:
+          # We do daily rollouts, limit the revision history to two weeks of
+          # releases as we don't expect to roll back beyond that.
+          revisionHistoryLimit: 14
+        ...
+
+
+
+- Deployment Strategies
+
+    - A K8s Deployment supports 2 different rollout strategies: 'Recreate' and 'RollingUpdate'.
+
+
+    - The 'Recreate' strategy simply updates the ReplicaSet it manages to use the new image and terminates
+        all the pods associated with the Deployment.  The ReplicaSet notices there are 0 replicas and
+        creates new Pods.  This results in downtime.
+
+
+    - The 'RollingUpdate' strategy is generally preferred for any user-facing service.  It allows you to
+        roll out a new version of a service while it is still receiving user traffic, without any
+        downtime.  It does this by updating a few pods at a time.
+
+
+    - With the RollingUpdate, both old and new versions are receiving requests and serving traffic.
+        So, they must be interchangeable.  You need to maintain backward and forward compatability.
+        Isolates clients from servers with a tight contract.
+
+
+    - The RollingUpdate has a number of configuration options.
+
+        - The 'maxUnavailable' parameter sets the maximum number of pods that can be unavaiable during a
+            rolling update.  It can be either an absolute number or a percentage.  A percentage is 
+            generally a good approach.
+
+        - There are situations where you don't want to fall below 100% capacity, but you're willing to
+            use additional resources to perform a rollout.  The 'maxSurge' parameter, which can also be
+            either an absolute number of a percentage, controls how many extra resources can be used
+            during a rollout.  Setting it at 100% gives you a blue/green deployment.
+
+
+
+- Slowing Rollouts to Ensure Service Health
+
+    - The Deployment always waits until a Pod reports it is healthy before moving to update the next Pod.
+        Sometimes, we want to wait a predefined amount of time before moving on to update the next Pod.
+        To do this (will wait 60 seconds after health check passes):
+
+        ...
+        spec:
+          minReadySeconds: 60
+        ...
+
+
+    - We can also specify a timeout, after which a rollout is marked as Failed.  This is becoming
+        increasingly more common as various CI systems get integrated.
+
+      In this case, if any stage of the Deployment (a single Pod rollout) takes longer than 10 minutes,
+        the Deployment fails:
+
+        ...
+        spec:
+          progressDeadlineSeconds: 600
+        ...
+
+
+
+- Deleting a Deployment
+
+    - To delete a deployment:
+
+        # Imperative
+        $ kubectl delete deployments kuard
+
+        # Using the file
+        $ kubectl delete -f kuard-deployment.yaml
