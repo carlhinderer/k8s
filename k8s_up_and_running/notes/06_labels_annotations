@@ -1,0 +1,236 @@
+-----------------------------------------------------------------------------
+| CHAPTER 6 - LABELS & ANNOTATIONS                                          |
+-----------------------------------------------------------------------------
+
+- Labels
+
+    - Labels and annotations let you work in sets of things that map to how you think about your application.
+        'Labels' are key/value pairs that can be attached to K8s objects.  They are arbitrary, and are the
+        foundation for grouping objects.
+
+      'Annotations' provide a storage mechanism that resembles labels.  They are key/value pairs designed
+        to hold nonidentifying information that tools and libraries can leverage. They are not meant for
+        querying or filtering.
+
+
+    - Motivations for labels include:
+
+        - Provide names for groups of things rather than single objects
+        - Flexible enough to model any kind of hierarch as the system evolves
+
+
+    - Labels have a simple syntax: they are key/value pairs with both represented as strings.
+
+        - Label keys can be broken down into 2 parts: an optional prefix and a name, separated by a slash.
+            The prefix, if specified, must be a DNS subdomain with a 253-character limit.  The key name
+            is required and has a 63-character limit.
+
+        - Names must start and end with alphanumeric characters, and can include dashes, dotss, and
+            underscores.
+
+        - Values have the same rules as names, along with a 63-character limit.
+
+
+        - Examples:
+
+            acme.com/app-version                1.0.0
+            appVersion                          1.0.0
+            app.version                         1.0.0
+            kubernetes.io/cluster-service       true
+
+
+
+- Applying Labels
+
+    - Here we create a few deployments (a way to create an array of Pods) with some interesting labels.
+        We'll take 2 apps (called 'alpaca' and 'bandicoot') that have 2 environments, and 2 versions for
+        each.
+
+        # Create the 'alpaca-prod' deployment, and set the 'ver', 'app', and 'env' labels
+        $ kubectl run alpaca-prod \
+                      --image=gcr.io/kuar-demo/kuard-amd64:blue \
+                      --replicas=2 \
+                      --labels="ver=1,app=alpaca,env=prod"
+
+        # Create the 'alpaca-test' deployment
+        $ kubectl run alpaca-test \
+                      --image=gcr.io/kuar-demo/kuard-amd64:green \
+                      --replicas=1 \
+                      --labels="ver=2,app=alpaca,env=test"
+
+        # Create the 'bandicoot-prod' deployment
+        $ kubectl run bandicoot-prod \
+                      --image=gcr.io/kuar-demo/kuard-amd64:green \
+                      --replicas=2 \
+                      --labels="ver=2,app=bandicoot,env=prod"
+
+        # Create the 'bandicoot-staging' deployment
+        $ kubectl run bandicoot-staging \
+                      --image=gcr.io/kuar-demo/kuard-amd64:green \
+                      --replicas=1 \
+                      --labels="ver=2,app=bandicoot,env=staging"
+
+
+    - Now, we have 4 deployments, which we can see:
+
+        $ kubectl get deployments --show-labels
+
+
+
+- Modifying Labels
+
+    - You can also apply or update labels on objects after you create them:
+
+        $ kubectl label deployments aplaca-test "canary=true"
+
+
+    - You can use the '-L' option to show a label value as a column:
+
+        $ kubectl get deployments -L canary
+
+
+    - To remove a label:
+
+        $ kubectl label deployments alpaca-test "canary-"
+
+
+
+- Label Selectors
+
+    - Label selectors are used to filter K8s objects based on a set of labels.  They are used both by end
+        users and by other K8s objects.
+
+
+    - To look at all pods and their labels:
+
+        $ kubectl get pods --show-labels
+
+
+    - To get pods with 'ver=2':
+
+        $ kubectl get pods --selector="ver=2"
+
+
+    - If we include multiple comma-separated selectors, they are AND'ed together:
+
+        $ kubectl get pods --selector="app=bandicoot,ver=2"
+
+
+    - We can ask if a label is one of a set of values:
+
+        $ kubectl get pods --selector="app in (alpaca,bandicoot)"
+
+
+    - We can also ask if a label is set at all:
+
+        $ kubectl get deployments --selector="canary"
+
+
+    - There are also negative versions of each of these selectors:
+
+        Operator                      Description
+        ------------------------------------------------
+        key=value                     key is set to value
+        key!=value                    key is not set to value
+
+        key in (value1, value2)       key is one of value1 or value2
+        key notin (value1, value2)    key is not one of value1 or value2
+
+        key                           key is set
+        !key                          key is not set
+
+
+    - To check whether a key is not set to canary:
+
+        $ kubectl get deployments --selector='!canary'
+
+
+    - To combine positive and negative selectors:
+
+        $ kubectl get pods -l 'ver=2,!canary'
+
+
+
+- Label Selectors in API Objects
+
+    - A K8s object uses a label selector to refer to other K8s objects.  Instead of a simple string, we
+        use a parsed structure.  For historical reasons, there are 2 forms of this:
+
+        1. The newer, more powerful set of selector operators
+
+            # Selector of app=alpaca, ver in (1, 2)
+            selector:
+              matchLabels:
+                app: alpaca
+              matchExpressions:
+                - {key: ver, operator: In, values: [1, 2]}
+
+
+        2. The older version that only supports =
+
+            # Selector of app=alpaca, ver=1
+            selector:
+              app: alpaca
+              ver: 1
+
+
+
+- Labels in K8s Architecture
+
+    - K8s is a purposefully decoupled system.  However, in many cases, objects need to relate to each other.
+        Those relationships are expressed using labels.
+
+    - For instance, ReplicaSets find the pods they are managing via a selector.  Load balances find nodes
+        they should direct traffic to using a selector.  To restrict network traffic, we use Network
+        Policy with a selector.
+
+
+
+- Annotations
+
+    - Annotations provide a place to store additional metadata for K8s objects with the sole purpose of
+        assisting tools and libraries.
+
+    - While labels are used to identify and group objects, annotations are used to provide extra information
+        about where an object came from, how to use it, or the policy around that object.
+
+
+    - Annotations are used to:
+
+        - Keep track of a reason for the latest update to an object
+
+        - Communicate a specialized scheduling policy to a specialized scheduler
+
+        - Extend data about the last too to update the resource and how it was updated
+
+        - Attach build, release, or image information that is not appropriate for labels (ie git hash)
+
+        - Enable the Deployment object to keep track of ReplicaSets it is managing for rollouts
+
+        - Provide extra data to enhance the usability of a UI (ie a link to an icon)
+
+        - Prototype alpha functionality
+
+
+    - The primary use case for annotations is rolling deployments.  During rolling deployments, annotations
+        are used to track rollout status and provide information necessary to roll back to a previous
+        state.
+
+
+    - Annotation keys have the same format as label keys.  Annotation values can be any string, and JSON
+        is often used in the values.
+
+
+    - Annotations are defined in the common 'metadata' section in any K8s object.
+
+        metadata:
+          annotations:
+            example.com/icon-url: "https://example.com/icon.png"
+
+
+
+- Cleanup
+
+    - To clean up all the deployments we started in this chapter:
+
+        $ kubectl delete deployments --all
