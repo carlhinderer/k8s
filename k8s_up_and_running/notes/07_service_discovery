@@ -1,0 +1,359 @@
+-----------------------------------------------------------------------------
+| CHAPTER 7 - SERVICE DISCOVERY                                             |
+-----------------------------------------------------------------------------
+
+- Service Discovery
+
+    - 'Service discovery' is the process of finding which processes are listening at which addresses for
+        which services.  A good service discovery system enables users to find this information quickly
+        and reliably, with low latency.
+
+    - DNS is the traditional system of service discovery on the internet.  DNS is designed for relatively
+        stable name resolution with wide and efficient caching.  It's a great system for the internet, but
+        falls short of the dynamic requirements that K8s needs.
+
+
+
+- The Service Object
+
+    - A 'Service' object is a way to create a named label selector.  It does a few other nice things for us,
+        too.
+
+
+    - Just as the 'kubectl run' command is an easy way to create a K8s deployment (think of a deployment as
+        an instance of a microservice for now), the 'kubectl expose' command is used to create a new service.
+        To create some deployments and services:
+
+        $ kubectl create deployment alpaca-prod \
+                                    --image=gcr.io/kuar-demo/kuard-amd64:blue \
+                                    --port=8080
+
+        $ kubectl scale deployment alpaca-prod --replicas 3
+
+        $ kubectl expose deployment alpaca-prod
+
+
+        $ kubectl create deployment bandicoot-prod \
+                                    --image=gcr.io/kuar-demo/kuard-amd64:green \
+                                    --port=8080
+
+        $ kubectl scale deployment bandicoot-prod --replicas 2
+
+        $ kubectl expose deployment bandicoot-prod
+
+
+    - To get the list of services running:
+
+        $ kubectl get services -o wide
+
+        NAME               CLUSTER-IP         ... PORT(S)       ... SELECTOR
+        alpaca-prod        10.115.245.13      ... 8080/TCP      ... app=alpaca
+        bandicoot-prod     10.115.242.3       ... 8080/TCP      ... app=bandicoot
+        kubernetes         10.115.240.1       ... 443/TCP       ... <none>
+
+
+    - We can see that 'kubectl expose deployment' compies both the label selector and ports from the
+        deployment definition.  Also, each service is assigned a virtual IP called a 'Cluster IP', which
+        is a special IP the system will load balance across all IPs with the selector.
+
+
+    - To interact with services, we are going to port-forward to one of the 'alpaca' Pods.  We can see the
+        port forward working by accessing the 'alpaca' Pod at 'http://localhost:48858':
+
+        $ ALPACA_POD=$(kubectl get pods -l app=alpaca-prod -o jsonpath='{.items[0].metadata.name}')
+
+        $ kubectl port-forward $ALPACA_POD 48858:8080
+
+
+
+- Service DNS
+
+    - Because the cluster IP is virtual, it is stable, and it is appropriate to give it a DNS address.
+        All of the issues around clients caching DNS results no longer apply.  Within a namespace, it is
+        as easy as just using the service name to connect to one of the pods identified by a service.
+
+
+    - K8s provides a DNS service exposed to Pods running in the cluster.  This K8s DNS service was installed
+        as a system component when the cluster was first created.  The DNS service is, itself, managed by
+        K8s.  It provides DNS names for Cluster IPs.
+
+
+    - To try this out, we can look at the kuard server status page.  We'll see the full DNS name for
+        alpaca-prod, which looks like:
+
+        alpaca-prod.default.svc.cluster.local.
+
+        alpaca-prod        # Name of service
+        default            # Namespace the service is in
+        svc                # Recognizing this is a service
+        cluster.local.     # Base domain name for the cluster
+
+
+    - When referring to a service in your own namespace, you can just use the service name ('alpaca-prod').
+        You can also refer to the service in another namespace with 'alpaca-prod.default'.  We can try all
+        of these queries out in kuard.
+
+
+
+- Readiness Checks
+
+    - Most services require some amount of initialization, which can take anywhere from under a second to
+        several minutes.  A service can track which of our Pods is ready with a readiness check.
+
+
+    - We'll modify our deployment interactively to add a readiness check.
+
+        # Launch the editor
+        $ kubectl edit deployment/alpaca-prod
+
+        # Add this section to the deployment
+        containers:
+          ...
+          name: alpaca-prod
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            periodSeconds: 2
+            initialDelaySeconds: 0
+            failureThreshold: 3
+            successThreshold: 1
+
+
+    - Updating the deployment definition will delete and recreate the 'alpaca' pods.  So, we'll also need
+        to restart our 'port-forward' from before.
+
+        $ ALPACA_POD=$(kubectl get pods -l app=alpaca-prod -o jsonpath='{.items[0].metadata.name}')
+
+        $ kubectl port-forward $ALPACA_POD 48858:8080
+
+      Now, we can navigate to 'http://localhost:48858' and watch the readiness checks.
+
+
+    - To see the status of each readiness check, we can watch for updates on the 'endpoints', which are
+        a lower-level way of finding out what a service is sending traffic to.
+
+        $ kubectl get endpoints alpaca-prod --watch
+
+
+
+- Looking Beyond the Cluster
+
+    - So far, everything we've done has been to expose services inside of a cluster.  Often, the IPs for
+        pods are only reachable inside the cluster.  At some point, we have to allow new traffic in.
+
+
+    - The most portable way to do this is to use a feature called 'NodePorts', which enhance a service
+        even further.  In addition to the Cluster IP, the system picks a port (or the user can specify
+        one), and every node in the cluster then forwards traffic to that port to the service.
+
+
+    - With this feature, if you can reach any node in the cluster, you can contact a service.  You can use
+        the NodePort without knowing where any of the pods for that service are running.  This can be
+        integrated with hardware or software load balancers to expose the service further.
+
+
+    - To try this, modify the 'alpaca-prod' service:
+
+        $ kubectl edit service alpaca-prod
+
+
+      Change the 'spec.type' field to 'NodePort'.  You can also do this when creating the service with
+        'kubectl expose --type=NodePort'.  The system will assign a new NodePort:
+
+        $ kubectl describe service alpaca-prod
+
+        Name:                   alpaca-prod
+        Namespace:              default
+        Labels:                 app=alpaca
+        Annotations:            <none>
+        Selector:               app=alpaca
+        Type:                   NodePort
+        IP:                     10.115.245.13
+        Port:                   <unset> 8080/TCP
+        NodePort:               <unset> 32711/TCP
+        Endpoints:              10.112.1.66:8080,10.112.2.104:8080,10.112.2.105:8080
+        Session Affinity:       None
+        No events.
+
+
+    - Here, we see that the system assigned port 32711 to the service.  Now, we can hit any of our 
+        cluster nodes on that port to access the service.  If you are sitting on the same network, you can
+        access it directly.
+
+      If your cluster is in the cloud someplace, you can use SSH tunneling:
+
+        $ ssh <node> -L 8080:localhost:32711
+
+      Now, when you point your browser to 'http://localhost:8080', you will be connected to that service.
+        Each request that you send to the service will be randomly directed at one of the Pods that
+        implements the service.  Reload the page a few times, and you'll see you are randomly assigned to
+        different pods.
+
+
+
+- Load Balancer Integration
+
+    - If you have a cluster that is configured to integrate with external load balancers, you can use the
+        'LoadBalancer' type.  This builds on the 'NodePort' type by additionally configuring the cloud to
+        create a new load balancer and direct it at nodes in your cluster.  Most cloud-based K8s clusters
+        offer load balancer integration.
+
+
+    - Edit the 'alpaca-prod' service again:
+
+        $ kubectl edit service alpaca-prod
+
+      Change the 'spec.type' to 'LoadBalancer'.  This will expose the service to the public internet,
+        so we should make sure it is something we want to share with the world.
+
+
+    - If we look at the services right away ('kubectl get services'), we'll see that the 'EXTERNAL-IP'
+        column for 'alpaca-prod' now says 'Pending'.  Wait a bit, and we'll see a public address assigned
+        by the cloud provider.
+
+        $ kubectl describe service alpaca-prod
+
+        Name:                           alpaca-prod
+        Namespace:                      default
+        Labels:                         app=alpaca
+        Selector:                       app=alpaca
+        Type:                           LoadBalancer
+        IP:                             10.115.245.13
+        LoadBalancer Ingress:           104.196.248.204
+        Port: <unset> 8080/TCP
+        NodePort: <unset> 32711/TCP
+        Endpoints: 10.112.1.66:8080,10.112.2.104:8080,10.112.2.105:8080
+        Session Affinity: None
+        Events:
+        FirstSeen ... Reason Message
+        --------- ... ------ -------
+        3m ... Type NodePort -> LoadBalancer
+        3m ... CreatingLoadBalancer Creating load balancer
+        2m ... CreatedLoadBalancer Created load balancer
+
+
+    - Note that different cloud providers use different types of external load balancers, so we may see a
+        DNS name rather than an IP address, for instance.
+
+
+    - Instead of an external load balancer, we may just want our services to be available on our private
+        network only.  In this case, we want an internal load balancer.  Since this is a newer K8s feature,
+        it is done differently for each cloud provider, using an object annotation.
+
+        # For AWS
+        metadata:
+            ...
+            name: some-service
+            annotations:
+                service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+
+
+
+- Advanced Details
+
+    - Endpoints
+
+        - Some applications want to be able to use services without using a Cluster IP.  This is done with
+            an 'Endpoints' object.  For every Service object, K8s creates a buddy Endpoints object
+            that contains the IP address for that service.
+
+            $ kubectl describe endpoints alpaca-prod
+
+
+        - To use a service, an application can talk to the K8s API directly to look up endpoints and call
+            them.  To demonstrate, start this command and leave it running.  It will output the current
+            state of the endpoints and then hang.
+
+            $ kubectl get endpoints alpaca-prod --watch
+
+
+        - Now, open up another window and delete and recreate the 'alpaca-prod' deployment.
+
+            $ kubectl delete deployment alpaca-prod
+            $ kubectl create deployment alpaca-prod --image=gcr.io/kuar-demo/kuard-amd64:blue --port=8080
+            $ kubectl scale deployment alpaca-prod --replicas=3
+
+
+        - In the first window, we'll see the new IP addresses associated with the service.
+
+
+    - Manual Service Discovery
+
+        - K8s services are built on top of label services over Pods.  This means we can do rudimentary
+            service discovery without using a Service object at all.
+
+
+        - To see what IPs are assigned to each Pod in our deployments:
+
+            $ kubectl get pods -o wide --show-labels
+
+            # Filter by deployment
+            $ kubectl get pods -o wide --selector=app=alpaca-prod
+
+
+    - kube-proxy and Cluster IPs
+
+        - Cluster IPs are stable virtual IPs that load balance traffic across all of the endpoints in a
+            service.  The magic is performed by a component running on every node in the cluster called
+            the 'kube-proxy'.
+
+
+        - The kube-proxy watches for new services in the cluster via the API server.  It then programs a
+            set of iptables rules in the kernel of that host to rewrite the destination of packets so
+            they are directed at one of the endpoints for that service.  If the set of endpoints for a
+            service changes, the set of iptables is rewritten.
+
+
+    - Cluster IP Environment Variables
+
+        - While most users should be using the DNS services to find cluster IPs, there are some older
+            mechanisms that may still be in use.  One of these is injecting a set of environment
+            variables into Pods as they start up.
+
+
+        - For instance, there are 'ALPACA_PROD_SERVICE_HOST' and 'ALPACA_PROD_SERVICE_PORT' env vars that
+            are accessible to our 'alpaca-prod' Pods to support the deprecated 'Docker link variables'
+            approach.  
+
+
+        - This approach had problems related to resources needing to be created in a specific order and 
+            unnecessary complexity.  DNS should be used instead.
+
+
+
+- Connecting with Other Environments
+
+    - It's great that we have service discovery in our own cluster, but many real-world applications 
+        require integrating cloud-native applications with legacy environments.
+
+
+    - To connect to resources outside of the cluster, you can use selector-less services to declare a K8s
+        service with a manually assigned IP address that is outside the cluster.  This way, DNS works as
+        expected, but the network traffic itself flows to an external resource.
+
+        apiVersion: v1
+        kind: Endpoints
+        metadata:
+          # This name must match the name of your service
+          name: my-database-server
+        subsets:
+          - addresses:
+            # Replace this IP with the real IP of your server
+            - ip: 1.2.3.4
+            ports:
+              # Replace this port with the port(s) you want to expose
+              - port: 1433
+
+
+    - Connecting external resources to K8s resources is somewhat trickier.  The easiest way to do this, if
+        your cloud provider supports it, is to create an internal load balancer that lives in your VPC
+        and can deliver traffic from a fixed IP address into the cluster.
+
+
+
+- Cleanup
+
+    - To clean up all the objects created in this chapter:
+
+        $ kubectl delete services,deployments -l app
