@@ -1,0 +1,384 @@
+-----------------------------------------------------------------------------
+| CHAPTER 12 - JOBS                                                         |
+-----------------------------------------------------------------------------
+
+- The Job Object
+
+    - Sometimes, we need to run short-lived, one off tasks.  The 'Job' object is made for handling these
+        types of tasks.
+
+
+    - A Job creates Pods that run until successful termination.  They are useful for things you want to do
+        once, like database migrations or batch jobs.  The Pods run are based on a template in the Job
+        spec.
+
+
+    - If a Pod fails before successful termination, the Job Controller will create a new Pod based on the
+        Pod template.  There is a small chance that duplicate Pods will be created during failure scenarios.
+
+
+
+- Job Patterns
+
+    - By default, each job runs a single Pod until successful termination (ie exit code 0).  This pattern
+        is defined by 2 primary attributes:
+
+        1. completions = The number of job completions
+        2. parallelism = The number of Pods to run in parallel
+
+
+    - The job patterns:
+
+        Type          Use case                Behavior                          completions    parallelism
+        ----------------------------------------------------------------------------------------------------
+        One shot      Database migrations     A single Pod running once until   1              1
+                                                successful termination
+
+        Parallel      Multiple Pods           One or more Pods running one or   1+             1+
+        fixed           processing a set of     more times until reaching a
+        completions     work in parallel        fixed completion count
+ 
+        Work queue:   Multiple Pods processing  One or more Pods running once   1              2+
+        parallel jobs   from a centralized        until successful termination
+                        work queue
+
+
+
+- One Shot
+
+    - One-shot jobs provide a way to run a single Pod until successful termination.  If the job fails,
+        the Pod will be re-created.
+
+
+    - To create a one-shot job with kubectl, which generates 10 SSH keys, then exits:
+
+        $ kubectl run -i oneshot \
+                         --image=gcr.io/kuar-demo/kuard-amd64:blue \
+                         --restart=OnFailure \
+                         --command /kuard \
+                         -- --keygen-enable \
+                         --keygen-exit-on-complete \
+                         --keygen-num-to-gen 10
+
+
+    - After the job has completed, the Job object and related Pod are retained so that you can inspect the
+        log output.
+
+        # See completed job
+        $ kubectl get jobs -a
+
+        # Delete the job
+        $ kubectl delete pods oneshot
+
+
+    - We can also create a one-shot job using a config file:
+
+        job-oneshot.yaml
+        ---------------------------
+        apiVersion: batch/v1
+        kind: Job
+        metadata:
+          name: oneshot
+        spec:
+          template:
+            spec:
+              containers:
+              - name: kuard
+                image: gcr.io/kuar-demo/kuard-amd64:blue
+                imagePullPolicy: Always
+                command:
+                  - "/kuard"
+                  args:
+                    - "--keygen-enable"
+                    - "--keygen-exit-on-complete"
+                    - "--keygen-num-to-gen=10"
+                  restartPolicy: OnFailure
+
+
+    - To submit the job:
+
+        $ kubectl apply -f job-oneshot.yaml
+
+        # Describe the job
+        $ kubectl describe jobs oneshot
+
+
+    - We can view the logs by looking at the pod that was created:
+
+        $ kubectl logs oneshot-4kfdt
+
+
+
+- Job Failures
+
+    - Now, to test job failures, we'll add a job that returns a nonzero exit code:
+
+        ...
+        spec:
+          template:
+            spec:
+              containers:
+                ...
+                args:
+                  - "--keygen-enable"
+                  - "--keygen-exit-on-complete"
+                  - "--keygen-exit-code=1"
+                  - "--keygen-num-to-gen=3"
+        ...
+
+
+    - Now, we'll run it and we can see that we that the Pod keeps ending up in an 'Error' state.  In this 
+        case, K8s will wait a bit before restarting the Pod to avoid a crash loop that eats resources on
+        the node.  This is all handled on the node by the kubelet without the job being involved at all.
+
+        # Run job
+        $ kubectl apply -f job-oneshot-failure1.yaml
+
+        # View failed Pods
+        $ kubectl get pod -l job-name=oneshot
+
+        # Kill the job
+        $ kubectl delete jobs oneshot
+
+
+    - If we don't want the Job to restart on failure, we can specify:
+
+        restartPolicy: Never
+
+      In this case, a new Pod will start each time the previous one errors out.  This is not usually 
+        recommended, since it will leave a lot of dead Pods behind on your machine.
+
+
+
+- Parallelism
+
+    - We could instead start a bunch of workers together to make our key generation faster.  We do this
+        using the 'completion' and 'parallelism' parameters.  We'll generate 100 keys with 10 runs of
+        kuard.  But to avoid swamping our cluster, we'll limit it to only 5 Pods at a time.
+
+
+    - Here is the config for that:
+
+        job-parallel.yaml
+        ---------------------------
+        apiVersion: batch/v1
+        kind: Job
+        metadata:
+          name: parallel
+          labels:
+            chapter: jobs
+        spec:
+          parallelism: 5
+          completions: 10
+          template:
+            metadata:
+              labels:
+                chapter: jobs
+            spec:
+              containers:
+              - name: kuard
+                image: gcr.io/kuar-demo/kuard-amd64:blue
+                imagePullPolicy: Always
+                command:
+                - "/kuard"
+                args:
+                - "--keygen-enable"
+                - "--keygen-exit-on-complete"
+                - "--keygen-num-to-gen=10"
+              restartPolicy: OnFailure
+
+
+    - Now we can run the job and watch the pods, then delete the job when we are done.
+
+        # Run Pods
+        $ kubectl apply -f job-parallel.yaml
+
+        # Watch Pods
+        $ kubectl get pods -w
+
+        # View logs for a given Pod
+        $ kubectl logs parallel-fkqnj
+
+        # Delete the job when we're done
+        $ kubectl delete job parallel
+
+
+
+- Work Queue
+
+    - A common use case for jobs is to process work from a work queue.  In this scenario, some task creates
+        a number of work items and publishes them to a work queue.  A worker job can be run to process
+        each work item until the queue is empty.
+
+
+    - We start by launching a centralized work queue service.  kuard has a simple memory-based work queue
+        built in.  We'll start an instance of kuard to act as a coordinator for all the work.
+
+      Next, we create a simple ReplicaSet to manage a singleton work queue daemon.  We're using a ReplicaSet
+        to ensure a new Pod will get created if there is a machine failure.
+
+
+    - Here is our config for the work queue:
+
+        rs-queue.yaml
+        ---------------------------
+        apiVersion: apps/v1
+        kind: ReplicaSet
+        metadata:
+          labels:
+            app: work-queue
+            component: queue
+            chapter: jobs
+          name: queue
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app: work-queue
+              component: queue
+              chapter: jobs
+          template:
+            metadata:
+              labels:
+                app: work-queue
+                component: queue
+                chapter: jobs
+            spec:
+              containers:
+              - name: queue
+                image: "gcr.io/kuar-demo/kuard-amd64:blue"
+                imagePullPolicy: Always
+
+
+    - To run the queue and connect to it:
+
+        $ kubectl apply -f rs-queue.yaml
+
+        $ kubectl port-forward rs/queue 8080:8080
+
+
+    - Now, the work queue daemon is up and running.  We can open kuard at 'http://localhost:8080' and
+        switch to the 'MemQ Server' tab.
+
+
+    - With the work queue in place, the next step is to expose it as a service.  This will make it easy for
+        workers to locate the queue via DNS.
+
+        service-queue.yaml
+        ---------------------------
+        apiVersion: v1
+        kind: Service
+        metadata:
+          labels:
+            app: work-queue
+            component: queue
+            chapter: jobs
+          name: queue
+        spec:
+          ports:
+          - port: 8080
+            protocol: TCP
+            targetPort: 8080
+          selector:
+            app: work-queue
+            component: queue
+
+
+    - Create the queue service:
+
+        $ kubectl apply -f service-queue.yaml
+
+
+    - Now, we are ready to put a bunch of work items in the queue.  We'll just use curl to do this.
+
+        # Create a work queue called 'keygen'
+        $ curl -X PUT localhost:8080/memq/server/queues/keygen
+
+        # Create 100 work items and load up the queue
+        for i in work-item-{0..99}; do
+          curl -X POST localhost:8080/memq/server/queues/keygen/enqueue -d "$i"
+        done
+
+
+    - Once we run these commands, we should see the 100 work items added to the queue.  To see the 
+        details of the work queue:
+
+        $ curl 127.0.0.1:8080/memq/server/stats
+
+
+    - Creating the Consumer Job
+
+        kuard can also act in consumer mode.  We can set it up to draw work items from the work queue,
+          create a key, and then exit once the queue is empty.
+
+          job-consumers.yaml
+          ---------------------------
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            labels:
+              app: message-queue
+              component: consumer
+              chapter: jobs
+            name: consumers
+          spec:
+            parallelism: 5
+            template:
+              metadata:
+                labels:
+                  app: message-queue
+                  component: consumer
+                  chapter: jobs
+              spec:
+                containers:
+                - name: worker
+                  image: "gcr.io/kuar-demo/kuard-amd64:blue"
+                  imagePullPolicy: Always
+                  command:
+                  - "/kuard"
+                  args:
+                  - "--keygen-enable"
+                  - "--keygen-exit-on-complete"
+                  - "--keygen-memq-server=http://queue:8080/memq/server"
+                  - "--keygen-memq-queue=keygen"
+                restartPolicy: OnFailure
+
+
+    - Here, we're telling the job to start up 5 pods in parallel.  Since the 'completions' is unset, we
+        put this job into worker pool mode.  Once the first Pod exits with a 0 exit code, the job will
+        start winding down and won't start any new pods.
+
+        $ kubectl apply -f job-consumers.yaml
+
+        # View worker pods
+        $ kubectl get pods
+
+
+    - To clean up:
+
+        $ kubectl delete rs,svc,job -l chapter=jobs
+
+
+
+- Cron Jobs
+
+    - Sometimes you want to schedule a job to run on a certain interval.  To achieve this, you can declare
+        a 'CronJob', which is responsible for creating a new Job object at a specific interval.
+
+        job-cronjob.yaml
+        -----------------------
+        apiVersion: batch/v1
+        kind: CronJob
+        metadata:
+          name: example-cron
+        spec:
+          # Run every fifth hour
+          schedule: "0 */5 * * *"
+          jobTemplate:
+            spec:
+              template:
+                spec:
+                  containers:
+                  - name: batch-job
+                    image: my-batch-image
+                  restartPolicy: OnFailure
