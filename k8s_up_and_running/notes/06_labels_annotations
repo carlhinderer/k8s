@@ -25,7 +25,7 @@
             The prefix, if specified, must be a DNS subdomain with a 253-character limit.  The key name
             is required and has a 63-character limit.
 
-        - Names must start and end with alphanumeric characters, and can include dashes, dotss, and
+        - Names must start and end with alphanumeric characters, and can include dashes, dots, and
             underscores.
 
         - Values have the same rules as names, along with a 63-character limit.
@@ -81,7 +81,7 @@
 
     - You can also apply or update labels on objects after you create them:
 
-        $ kubectl label deployments aplaca-test "canary=true"
+        $ kubectl label deployments alpaca-test "canary=true"
 
 
     - You can use the '-L' option to show a label value as a column:
@@ -201,7 +201,7 @@
 
         - Communicate a specialized scheduling policy to a specialized scheduler
 
-        - Extend data about the last too to update the resource and how it was updated
+        - Extend data about the last tool to update the resource and how it was updated
 
         - Attach build, release, or image information that is not appropriate for labels (ie git hash)
 

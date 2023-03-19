@@ -52,7 +52,7 @@
         kubernetes         10.115.240.1       ... 443/TCP       ... <none>
 
 
-    - We can see that 'kubectl expose deployment' compies both the label selector and ports from the
+    - We can see that 'kubectl expose deployment' compiles both the label selector and ports from the
         deployment definition.  Also, each service is assigned a virtual IP called a 'Cluster IP', which
         is a special IP the system will load balance across all IPs with the selector.
 

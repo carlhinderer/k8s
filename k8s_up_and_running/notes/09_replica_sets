@@ -14,7 +14,7 @@
         3. Sharding for handling different parts of computation in parallel
 
 
-    - You could manually create multiple pods using similar Pod manifests, but this is dedious and 
+    - You could manually create multiple pods using similar Pod manifests, but this is tedious and 
         error-prone.  A 'ReplicaSet' acts as a cluster-wide Pod manager, ensuring the right types and
         numbers of Pods are running at all times.
 

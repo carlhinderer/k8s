@@ -415,7 +415,7 @@
 
     - After the Pod is scheduled, the 'kubelet' daemon on that machine is responsible for creating the
         containers that correspond to the Pod, as well as performing any health checks defined in the Pod
-        mainfest.
+        manifest.
 
     - Once a Pod is scheduled to a node, no rescheduling occurs, even if that node fails.  To create
         multiple replicas of the same Pod, you have to create and name them manually.  This is why we

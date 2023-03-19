@@ -64,7 +64,7 @@
 
 
     - We'll assume we have a domain called 'example.com'.  We'll configure 2 DNS entries: 'alpaca.example.com'
-        and 'bandicoot.example.com'.  If you have an IP address for your external load balance, create A
+        and 'bandicoot.example.com'.  If you have an IP address for your external load balancer, create A
         addresses.  If you have a hostname, create CNAME records.
 
 
@@ -259,7 +259,7 @@
 - The Future of Ingress
 
     - The Ingress object provides a very useful abstraction for configuring L7 load balancers, but it
-        doesn't have all the features uses want.  Additionally, it is easy to misconfigure Ingress, and
+        doesn't have all the features users want.  Additionally, it is easy to misconfigure Ingress, and
         opens the door for conflicts from different implementations.
 
 

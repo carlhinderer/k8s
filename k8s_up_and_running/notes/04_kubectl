@@ -38,6 +38,11 @@
         users (using the '--users') flags with the 'set-context' command.
 
 
+    - Here is an example of creating a context using an AWS EKS cluster and an AWS profile:
+
+        $ aws eks update-kubeconfig --name dev --alias dev --profile dev
+
+
 
 - Viewing K8s API Objects
 
@@ -187,6 +192,9 @@
 
         # Forward traffic from port 8080 on local machine to port 80 in container
         $ kubectl port-forward <pod-name> 8080:80
+
+
+    - Note that 'kubefwd' is a popular utility for bulk-forwarding ports.
 
 
     - To see the most recent K8s events:
