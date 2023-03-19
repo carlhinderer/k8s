@@ -1,0 +1,55 @@
+-----------------------------------------------------------------------------
+| CHAPTER 14 - ROLE-BASED ACCESS CONTROL FOR KUBERNETES                     |
+-----------------------------------------------------------------------------
+
+- RBAC
+
+    - Role-based access control provides a mechanism for restricting both access to and actions on a K8s
+        API to ensure only authorized users have access.  This makes sure you cluster is secure and that
+        a person in the wrong namespace can't accidentally take down the Production cluster.
+
+
+    - Every request to K8s is first authenticated.  This provides the identity of the caller initiating the
+        request.  This may be integrated with a plugable authentication provider.  K8s doesn't have a
+        built-in identity store, it focuses on integrating other identity sources.
+
+
+    - Once users have been authenticated, the authorization phase determines whether they are authorized to
+        perform the request.  Authorization is a combination of the identity of the user, the resource, and
+        the verb or action they are attempting to perform.  If the user is allowed to perform the action,
+        the request is allowed to proceed.  Otherwise, a 403 is returned.
+
+
+
+- Identity in K8s
+
+    - Every request to K8s is associated with some identity.  Even a request with no identity is associated
+        with the 'system:unauthenticated' group.
+
+
+    - K8s makes a distinction between user identities and service account identities.  Service accounts are
+        created and managed by K8s itself, and are generally associated with components running inside the
+        cluster.
+
+      User accounts are all other accounts associated with actual users of the cluster, and often include
+        automation like CD services that run outside the cluster.
+
+
+    - 
+
+
+
+- Roles and Role Bindings
+
+
+
+- Testing Authorization with can-i
+
+
+- Managing RBAC in Source Control
+
+
+- Aggregating ClusterRoles
+
+
+- Using Groups for Bindings
