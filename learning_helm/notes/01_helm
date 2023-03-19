@@ -1,0 +1,366 @@
+-----------------------------------------------------------------------
+| CHAPTER 1 - HELM                                                    |
+-----------------------------------------------------------------------
+
+- Containers
+
+    - Containers have their own filesystem, but are executed in the same OS kernel as the host.
+
+    - Provide a useful way of packaging up the runtime environment for a single program so the 
+        executable is guaranteed to have all dependencies met.
+
+    - Ideal in a microservice environment where they can be moved from host to host.
+
+    - Sometimes, a program may run in complete isolation.  But mmore often, we want to expose aspects
+        of the container to the outside world.  We may want to give it access to storage or answer
+        network connections.  All of these tasks are provided by the container runtime.
+
+
+
+- Container Registries
+
+    - A container is a program packaged with its dependencies and environment.  The whole thing is
+        packaged together into a portable representation called a 'container image'.
+
+    - Images are not packaged into one large binary, they are packaged into discrete layers, each
+        with its own unique identifier.
+
+    - Image registries are used to distribute container images.  Hosts can push images to the registry
+        and pull them.
+
+    - When a host requests an image, the image registry returns the list of layers in the image, then
+        the host downloads the layers it needs.
+
+
+    - A registry uses up to 3 pieces of information to identify a particular image.
+
+        1. Name     = Name for the image (ie 'nginx').
+
+        2. Tag      = Version of the software (ie 'v1.2.3').  Tags are just arbitrary strings, so tags
+                        like 'latest' and 'stable' are also common.
+
+        3. Digest   = Since tags are mutable, there is no guarantee a given tag refers to a specific
+                        version.  So registries support fetching images by digest (SHA-256 or SHA-512).
+
+
+    - The canonical format for combining these is:
+
+        name:tag@digest
+
+        Examples
+        ------------
+        example.com/servers/nginx:latest
+        example.com/my/app@sha256:a428de44a9059feee59237a5881c2d2cffa93757d99026156e4ea544577ab7f3
+
+
+
+- Schedulers and k8s
+
+    - As developers started packaging their applications into containers, new questions emerged:
+
+        - What is the best way to execute lots of containers?
+
+        - How should we facilitate a microservice architecture where lots of containers need to work
+            together?
+
+        - How do we judiciously share access to things like storage, load balancers, and gateways?
+
+        - How do we manange resources like memory CPU, network bandwidth?  How do we run the most possible
+            containers with the least possible hosts?
+
+
+    - In 2015, Docker containers were making inroads into the enterprise.  There was a clear need for a
+        tool that could manage container scheduling and resource management.
+
+        - Mesos introduced Marathon
+        - Docker created Sward
+        - Hashicorp created Nomad
+        - Google open-sourced version of it's Borg platform, named is k8s
+
+      
+
+    - k8s introduced 2 concepts that set it apart from the crowd, declarative infrastructure and the
+        reconciliation loop.
+
+        - We tell the scheduler what our desired state is declaratively, and k8s works behind the scenes
+            to wire everything up.
+
+        - In a reconciliation loop, the scheduler looks at the desired state and the current state.  If
+            they are not the same, the scheduler will take steps to reconcile them.
+
+        - For instance, a user wants storage for their container.  Currently, there is no storage 
+            attached.  So k8s creates a unit of storage and attaches it to a container.
+
+
+
+- k8s Components
+
+    - A 'pod' is an abstract envelope that describes a discrete unit of work.  It can have one or more
+        containers.
+
+        # Pod manifest
+        -------------------------
+        apiVersion: v1
+        kind: Pod
+        metadata:
+            name: example-pod
+        spec:
+            containers:
+            - image: "nginx:latest"
+              name: example-nginx
+
+
+    - Most frequently, a pod only has one container.  Sometimes, they also have 'init containers', which
+        do some preconfiguration and exit before the main container comes online.  Sometimes, they have
+        'sidecar containers', which run alongside the main container and provide auxiliary services.
+
+
+    - A Pod describes what configuration the container needs, like network ports and filesystem mount
+        points.  Config information may be stored in 'ConfigMaps', or 'Secrets' for sensitive information.
+        
+      The Pod's definition may relate the values in these structures to environment variables or
+        files within each container.  As k8s sees those relationships, it will attempt to attach and 
+        configure the config data as described in the Pod definition.
+
+        # ConfigMap manifest
+        -------------------------
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+            name: configuration-data
+        data:
+            backgroundColor: blue
+            title: Learning Helm
+
+
+    - A Secret is structurally similar to a ConfigMap, except that the values in it's 'data' section
+        must be Base64 encoded.
+
+
+    - Pods are linked to config objects like 'ConfigMap' or 'Secret' using volumes.  Here, we take the
+        previous Pod example and attach the configuration data.
+
+        # Pod manifest (attached to ConfigMap)
+        -------------------------
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: example-pod
+        spec:
+          volumes:
+          - name: my-configuration
+            configMap:
+                name: configuration-data
+          containers:
+          - image: "nginx:latest"
+            name: example-nginx
+            env:
+              - name: BACKGROUND_COLOR
+                valueFrom:
+                  configMapKeyRef:
+                      name: configuration-data
+                      key: backgroundColor
+
+
+    - A 'Deployment' describes an application as a collection of identical pods.  It is composed of some
+        top-level information and a template for how to construct a replica pod.
+
+      With a Deployment, we can scale the number of pods we want up and down declaratievely.  We can 
+        attach a Horizontal Pod Autoscaler (another k8s type) to scale our pod automatically based on
+        resource use.  We can also perform rolling updates.
+
+      # Deployment manifest
+      --------------------------
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+          name: example-deployment
+          labels:
+              app: my-deployment
+      spec:
+          replicas: 3
+          selector:
+              matchLabels:
+                  app: my-deployment
+          template:
+              metadata:
+                  labels:
+                      app: my-deployment
+              spec:
+                  containers:
+                  - image: "nginx:latest"
+                    name: example-nginx
+
+
+    - To attach a k8s application to other things on the network, k8s provides a 'Service' definition.
+        A Service is a persistent network resource (kind of like a static IP) that persists even if the 
+        pods go away.  This way, Pods can come and go while the network can continue to route traffic to 
+        the same Service endpoint.
+
+      While a Service is an abstract k8s concept, behind the scenes it may be implemented as anything
+        from a routing rule to an external load balancer.
+
+      # Service manifest
+      --------------------------
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: example-service
+      spec:
+        selector:
+          app: my-deployment
+        ports:
+          - protocol: TCP
+            port: 80
+            targetPort: 8080         # TCP traffic to port 80 of this service will be routed to port 8080
+                                     #   on the pods that match the 'app: my-deployment' label
+
+
+
+- Helm's Goals
+
+    - A typical application running in k8s needs a lot of things.  At least a Deployment, a ConfigMap,
+        Secret, a few Service objects, a StatefulSet running a database, and a few RBAC controls.  Already,
+        we have thousands of lines of YAML.
+
+      The core idea of Helm is that all of those objects can be packaged to be installed, updated, and
+        deleted together.  When Helm was written, there were 3 main goals:
+
+        1. Make it easy to go from zero to k8s
+        2. Provide a package management system like OS's have
+        3. Emphasize security and configurability for deploying applications to k8s
+
+
+    - k8s is like an OS in that it provides an environment for executing programs.  It provides the tools
+        necessary to store, execute, and monitor the life cycle of a program.  Helm was initially 
+        envisioned as a package manager, modeled after apt and homebrew.
+
+        - It provides package repos and search capabilites to find what k8s applications are available
+        - It has familiar install, upgrade, and delete commands.
+        - It defines a method for configuring packages prior to installing them.
+        - Helm has tools for seeing what is already installed and how it is configured.
+
+
+    - k8s has the idea of a 'namespace', which is an arbitrary grouping mechanism that defines a boundary
+        between things inside the namespace and things outside.  Oftentimes, they are used as a fixture
+        to which security is attached.  For instance, maybe only specific users can access resources
+        inside of a namespace.
+
+
+    - For security, when a user examines a package, they should have the ability to verify certain things
+        about the package:
+
+        - The package comes from a trusted source
+        - The network connection over which the package is pulled is secured
+        - The package has not been tampered with
+        - The package can be easily inspected so the user can see what it does
+        - The user can see what configuration the package has
+
+      To achieve this, Helm provides a 'provenance' to establish verification about a package's origin,
+        author, and integrity.  Helm supports SSL/TLS for securely sending data across the network.  Helm
+        also provides dry-run, linting, and templating commands to examine packages and their possible
+        permutations.
+
+
+    - Another virtue of package management is the ability to install the same thing repeatedly and
+        predictably.  Helm charts are the key to reusability.  A 'chart' provides a pattern for
+        producing the same k8s manifests.  Charts also allow users to provide additional configuration.
+        In this way, Helm encourages k8s users to package YAML into charts so that the descriptions can
+        be reused.
+
+
+    - Helm provides tools to configure packages and install time, and to reconfigure installations during
+        upgrades.  Note that Helm is a native package management tool, not a config management tool 
+        (ie Puppet, Ansible, Chef).  Package management is typically confined to implementing 3 verbs:
+        Install, Upgrade, Delete.
+
+      Many tools in the Helm ecosystem (ie Helmfile, Flux, and Reckoner) have added additional config
+        management capabilities.
+
+
+
+- Helm's Architecture
+
+    - There are dozens of resource types provided by k8s, and you can even define Custom Resource
+        Definitions to create your own types.  Resource definitions are declarative, they define the
+        desired state of a resource.  
+
+        # Example resource definition
+        --------------------------
+        apiVersion: apps/v1                  # API family and version used for resource
+        kind: Deployment                     # Kind of resource
+        metadata:                            # Top-level information about the resource
+            name: example-deployment         # A name is required for almost every resource type
+            labels:                          # Used to give k8s queryable handles to your resources
+                some-name: some-value
+            annotations:                     # Provide a way for authors to provide their own keys/values
+                some-name: some-value
+        # resource-specific YAML
+
+
+    - A 'resource type' is composed of 3 pieces of information:
+
+        1. API Group (or family)
+            - Several base resource types like Pod and ConfigMap omit this name
+
+        2. API Version
+            - Expressed as 'v', followed by a major version, and an optional stability marker
+            - ie 'v1' or 'v1alpha'
+
+        3. Resource Kind
+            - Capitalized name of the specific resource in the API group
+
+
+    - k8s supports declaration of resources in either YAML or JSON.  Allmost all Helm users use YAML.
+        A 'manifest' is just a k8s resource serialized to either it's JSON or YAML format.
+
+
+
+- Charts
+
+    - In Helm's vocabulary, a package is called a 'chart'.  This is a joke based on the nautical nature
+        of k8s.  A chart is a set of files and directories that adhere to the chart spec for describing
+        k8s resources.
+
+        - A chart contains a file called 'Chart.yaml' that describes the chart and who authored it.
+
+        - A chart also contains 'templates', which are k8s manifests potentially annotated with 
+            templating directives.
+
+        - A chart may also contain a 'values.yaml' file that provides default configuration.  This file
+            contains parameters you can override during installation and upgrade.
+
+
+    - An 'unpacked' Helm chart is just a directory.  A 'packed' Helm chart contains the same information
+        as an unpacked one, but is tarred and gzipped into a single file.
+
+        - An unpacked chart is represented as the directory with the name of the chart.  For example, the
+            chart names 'mychart' will be unpacked into a directory named 'mychart/'.
+
+        - A packed chart has the name and version of the chart, with the '.tgz' suffix
+            (ie 'mychart-1.2.3.tgz').
+
+
+
+- Resources, Installations, and Releases
+
+    - When a Helm chart is installed into k8s, this is what happens:
+
+        1. Helm reads the chart (downloading if necessary)
+
+        2. It sends the values into the templates, generating k8s manifests
+
+        3. The manifests are sent to k8s
+
+        4. k8s creates the requested resources inside of the cluster
+
+
+    - In Helm's view, all of the resources defined by a chart are related.  When they are installed, they
+        are all part of the same 'installation'.
+
+    - Once we install our application chart, we have an installation of that chart.  When we upgrade the
+        chart with the 'helm upgrade' command, the installation has 2 releases.  A new 'release' of 
+        an installation is created every time Helm is used to mofify the installation.
+
+    - Note that in this book, we're using Helm 3 (which uses Helm Charts v2 definitions).  Helm 2 and
+        Helm Charts v1 are deprecated.
