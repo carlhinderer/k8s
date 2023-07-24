@@ -1,0 +1,250 @@
+-----------------------------------------------------------------------
+| CHAPTER 1 - K8S & CONTAINERS                                        |
+-----------------------------------------------------------------------
+
+- Docker, containerd, and runc
+
+    - Virtualization Before Docker
+
+        - Solaris Zones, VMware, and cgroups and namespaces in Linux kernel (Early 2000s)
+        - LXC released as a way manage cgroups and namespaces to allow native virtualization in Linux kernel (2008)
+
+
+    - Docker (2013)
+
+        - Initially built on top of LXC
+        - Included a packaging format (Dockerfile)
+        - Union filesystem allows developers to build lightweight container images
+        - Runtime environment (the Docker daemon) manages container storage, CPU, RAM
+        - Provides an API that can be consumed by the Docker CLI
+        - Provides a set of registries (Docker Hub) that allows OS, middleware, application vendors to distribute code
+
+
+    - containerd (2016)
+
+        - Docker's runtime capabilities extracted into separate engine (containerd) and donated to CNCF
+        - Allows other container ecosystems such as k8s to deploy and manage containers
+        - k8s initially used Docker runtime, switched to CRI (Container Runtime Interface) to allow different runtimes
+    
+
+    - runc
+
+        - The OCI (Open Container Inititiave) was founded to provide a lower-level interface to manage containers
+        - OCI Runtime Specification developed to define standard for runtime
+        - runc was developed by OCI as an impelementation of runtime spec
+        - runc is now used by most runtime engines such as containerd
+
+
+              CONTAINER MANAGER                  k8s   Docker
+                  (CRI)
+              HIGH LEVEL CONTAINER RUNTIME       containerd
+                  (OCI)
+              LOW LEVEL CONTAINER RUNTIME        runc
+                  (CONTAINER)
+              LINUX KERNEL                       cgroups   namespaces
+
+
+
+- Containers
+
+    - A container is a purely logical construction consisting of technologies glued together by the container runtime.
+        The 2 foundational Linux services used to enable containers are:
+
+        1. Namespaces = Used to partition kernel resources, allowing processes running within the namespace to be
+                          isolated from other processes.  Each namespaces has its own PIDs, hostname, and network
+                          access.
+
+        2. Control Groups = Used to limit usage by a process or set of processes of resources such as CPU, RAM, disk I/O,
+                              or network I/O.
+
+
+    - Union Filesystem
+
+        - Docker provides a UFS (Union Filesystem), which can merge multiple directories and files into a single view.
+
+        - It gives the appearance of a single writable filesystem, but is actually read only and does not allow
+            modification.
+
+        - The most common example is OverlayFS, which is included in the Linux kernel and used by default by Docker.
+
+
+        - Each command places a discrete layer on top of the base layer.
+
+            FROM ubuntu:18.04                  # Base layer
+            RUN apt-get update                 # Layer
+            RUN apt-get install nginx -y       # Layer
+            CMD ["echo", "Image created"]      # Layer
+
+
+    - Using Docker
+
+        # Run a container
+        $ docker run hello-world
+
+        # List containers on your host
+        $ docker ps -a
+
+        # View Docker components being used
+        $ docker info
+
+
+        - When you issue a command to the Docker CLI, it sends an API call to the Docker daemon.  If the image requested
+            is stored on your machine, it will use that.  Otherwise, it will try to pull the image from a Docker
+            repository (Docker Hub is the default).
+
+
+
+- Container Orchestration
+
+    - Docker works well on a single machine, but things get complicated if you need to deploy thousands of containers
+        across many different machines.  Container orchestration platforms were created to schedule, deploy, and manage
+        hundreds or thousands of containers.  Platforms that attempt to do this are:
+
+        - Docker Swarm = Created by Docker
+        - K8s = Open source container management system designed by Google and maintained by CNCF
+        - AWS ECS = AWS's container orchestration platform
+
+
+    - Container orchestration consists of:
+
+        1. Control Plane = decides where to put the containers
+        2. Data Plane = the worker runs the actual containers
+
+
+    - Other orchestrator features:
+
+        - Maintains the desired state for the entire cluster system
+        - Provisions and schedules containers
+        - Reschedules containers when a worker becomes unavailable
+        - Recovery from failure
+        - Scales containers in or out based on workload metrics, time, or some external event
+
+
+
+- k8s
+
+    - k8s is deployed as clusters combining a:
+
+        - A Control Plane, which provides an API that exposes K8s operations
+        - A Scheduler, which schedules containers across the worker nodes
+        - A Datastore, which stores all cluster data and state (etcd)
+        - A Controller, which manages jobs, failures, and restarts
+
+
+    - The cluster is also composed of many worker nodes that make up the data plane.  Each node runs the 'kubelet'
+        agent, which makes sure that containers are running on a specific node, and the 'kube-proxy', which manages
+        the networking for the node.
+
+    - All k8s resources are defined as objects that can be created, read, updated, and deleted.
+
+
+
+- Key k8s Objects
+
+    - Containerized applications are deployed and launched on worker nodes using the API.  The API provides a Pod,
+        which is one or more containers sharing the same Linux namespaces, cgroups, network, and storage resources.
+
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: nginx
+        spec:
+          containers:
+          - name: nginx
+            image: nginx:1.14.2
+            ports:
+            - containerPort: 80       # Port will be exposed
+
+
+    - In most cases, you want to deploy multiple Pods across multiple nodes, and maintain that number of Pods even
+        if you have node failures.  To do this, you use a Deployment.
+
+        ApiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: nginx-deployment
+          labels:
+            app: nginx
+        spec:
+          replicas: 3
+          selector:
+            matchLabels:
+              app: nginx
+          template:
+            metadata:
+              labels:
+                app: nginx
+            spec:
+              containers:
+              - name: nginx
+                image: nginx:1.14.2
+                ports:
+                - containerPort: 80
+
+
+    - By default, Pods and Deployments are only accessible from inside the cluster.  The NodePort service can be used
+        to expose a dynamic port on all nodes in the cluster.
+
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: nginx-service
+        spec:
+          type: NodePort
+          selector:
+            app: nginx
+          ports:
+            port: 80
+            nodePort: 30163
+
+      This Service exposes port 30163 on any host in the cluster and maps it back to any pod with the label 'app=nginx'.
+        It translates the port value to port 80, which the nginx pod is listening on.
+
+
+
+- k8s Deployment Architectures
+
+    - Developer Deployment
+
+        - For local development, you can use a simple deployment such as minikube or Kind.
+
+        - These deploy a full control plane on a VM (minikube) or Docker container (kind) and allow you to deploy API
+            resources on your local machine, which acts as both the control plane and data plane.
+
+        - This allows you to easily build and test your app and Deployment manifests.  However, you only have one
+            worker node, so complex deployment scenarios cannot be tested.
+
+
+    - Non-production Deployments
+
+        - In most caes, non-production environments have a non-resilient control plane with a single master note
+            hosting the control plane components (API server, etcd, etc.) and multiple worker nodes.
+
+        - This helps test multi-node architectures without the overhead of a complex control plane.
+
+        - If you want to test cluster applications in the case of a control plane failure, you will need to have at
+            least 2 master nodes.
+
+
+    - Self-built Production Deployments
+
+        - In production deployments, you will need a resilient control plane, typically following the rule of 3.
+            The control plane components are mainly stateless, while configuration is stored in etcd.  A load
+            balancer can be deployed to provide resilience for API requests, but a key decision is how to provide
+            a resilient etcd layer.
+
+        - With the 'stacked etcd' approach, etcd is deployed directly on the master nodes, making the etcd and k8s
+            topologies tightly coupled.
+
+        - With the 'external etcd' approach, the etcd cluster is hosted on separate amchines, effectively decoupling
+            them.
+
+
+    - Managed Service Environments
+
+        - AWS EKS is a managed service where AWS provides the control plane and you connect worker nodes to it using
+            either self-managed or AWS-managed node groups.  You simply create a cluster, and AWS will provision
+            and manage at least 2 API servers (in 2 distinct AZs) and a separate etcd autoscaling group (spread over
+            3 AZs).
+
+        - The cluster supports an SLA of 99.95% uptime and AWS will fix any issues with your control plane.

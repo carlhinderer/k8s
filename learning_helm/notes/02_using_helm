@@ -2,4 +2,13 @@
 | CHAPTER 2 - USING HELM                                              |
 -----------------------------------------------------------------------
 
-- 
+- Installing and Configuring the Helm Client
+
+    - Helm provides a command-line tool, named 'helm', that makes available all the features for
+        working with Helm charts.
+
+
+    - The helm client is written Go, which is a compiled language.  So once you install the binary, you
+        don't need any Go tools to run it.
+
+        # 
