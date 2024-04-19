@@ -1,0 +1,80 @@
+-----------------------------------------------------------------------
+| CHAPTER 2 - AWS EKS                                                 |
+-----------------------------------------------------------------------
+
+- AWS EKS
+
+    - At the end of 2017, 57% of k8s clusters were running on AWS.  Initially, you had to build the cluster using
+        tools such as Ranger or Kops on top of EC2 instances.  You also had to monitor and manage the cluster,
+        using tools such as Prometheus or Grafana, and have a team of operational staff to manage the upgrade
+        process.
+
+    - EKS was released in June 2018.  AWS takes the open-source code, adds AWS-specific plugins for identity and
+        networking, and allows you to deploy it in your AWS account.  AWS will then manage the control plane
+        and allow you to connect compute and storage resources to it.
+
+
+    - Since EKS is a managed service, it is heavily integrated into the AWS ecosystem:
+
+        - Pods are first-class network citizens, have VPC network addresses, and can be managed and controlled
+            like any other AWS resources
+
+        - Pods can be allocated specific IAM roles, simplifying how pods connect and use AWS services such as
+            DynamoDB
+
+        - K8s' control and data plane logs and metrics can be sent to AWS CloudWatch, where they can be reported
+            on, managed, and visualized
+
+        - Operational and development teams can mix compute (EC2 and/or Fargate) and storage services (EBS
+            and/or EFS) to support a variety of performance, cost, and security requirements
+
+
+
+- EKS Architecture
+
+    - Every EKS cluster will have a single endpoint URL used by tools such as kubectl, the main k8s client.  This
+        URL hides all the control plane servers deployed on an AWS-managed VPC across multiple AZs in the region
+        you have selected to deploy the cluster to.  The servers that make up the control plane are not accessible
+        to cluster users or admins.
+
+    - The data plane is typically composed of EC2 workers that are deployed across multiple AZs and have the
+        'kubelet' and 'kube-proxy' agents configured to point to the cluster endpoint.
+
+
+
+- The EKS Control Plane
+
+    - When a new cluster is created, a new control plane is created in an AWS-owned VPC in a separate account.
+        There are a minimum of 2 API servers per control plane (spread over 2 AZs), which are then exposed through
+        a NLB (Network Load Balancer).  The etcd servers are spread across 3 AZs, and configured in an auto-scaling
+        group for resilience.
+
+    - The cluster admins can only access the k8s API through the load balancer.
+
+    - The API servers are integrated with the worker nodes running under a different account/VPC owned by the
+        customer by creating ENIs (Elastic Network Interfaces) in 2 AZs.
+
+    - The kubelet agent running on the worker nodes uses a Route 53 private hosted zone, attached to the worker node
+        VPC, to resolve the IP addresses associated with the ENIs.
+
+
+        [AWS Managed VPC]
+        (AZ a)        (AZ b)       (AZ c)
+        etcd          etcd         etcd
+        API Server                 API Server       # mycluster.eks.awsamazon.com
+
+
+        [Your VPC]
+        (AZ a)        (AZ b)
+        Worker Node   Worker Node
+
+
+    - One gotcha is that there is no private EKS endpoint, so worker nodes need internet access to get the cluster
+        details from the EKS DescribeCluster API.  This generally means that subnets with worker nodes need either an
+        internet/NAT gateway or route to the internet.
+
+
+
+- Cluster Security
+
+    - When a new cluster is created, a new security group is also created and controls access to the 
